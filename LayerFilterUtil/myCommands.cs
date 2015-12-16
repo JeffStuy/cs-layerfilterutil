@@ -28,7 +28,7 @@ namespace LayerFilterUtil
 		const string USAGEUSAGE = "(layerFilterUtil \"usage\")";
 		const string USAGELIST = "(layerFilterUtil \"list\")";
 		const string USAGEFIND = "(layerFilterUtil \"find\" FilterNameToFind)";
-		const string USAGEADD = "(layerFilterUtil \"add\" NewFilterList)";
+		const string USAGEADD = "(layerFilterUtil \"add\" NewFilterList)" + "this is a test";
 		const string USAGEDEL = "(layerFilterUtil \"delete\" FilterNameToDelete or \"*\")";
 
 		static int TabLevel = 0;
