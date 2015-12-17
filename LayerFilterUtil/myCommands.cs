@@ -88,7 +88,8 @@ namespace LayerFilterUtil
 					// validate the args buffer, 2nd level - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
-						createListOfFilters(lfCollect, tvLists);
+
+						resbufOut = createListOfFilters(lfCollect, tvLists);
 					} 
 					else 
 					{
@@ -101,21 +102,10 @@ namespace LayerFilterUtil
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 					if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
 					{
-						// search for the layer filter - is true if found - finalize the resBuf
-						// and break
+						// search for the layer filter 
 
-						LayerFilter lFilter = findAFilter(lfCollect, ((string)tvArgs[1].Value));
+						resbufOut = findFilter(lfCollect, ((string)tvArgs[1].Value));
 
-						if (lFilter != null)
-						{
-							tvLists.Add(convertFilterToList(lFilter));
-
-							buildResBufMultipleItem(resbufOut, tvLists);
-						}
-						else
-						{
-							resbufOut = null;
-						}
 					}
 					else
 					{
@@ -128,14 +118,25 @@ namespace LayerFilterUtil
 					// except that any filter that cannot be deleted, cannot have nested filters
 					// parameter options:
 					// first parameter == "add"
-					// second parameter == "filter name" (cannot be duplicate)
-					// third parameter == "filter expression"
-					// fourth (optional) parameter = "parent name" - ON HOLD
+					// second parameter == "filter type" either "property" or "group" (case does not matter)
+					// third parameter == "filter name" (cannot be duplicate)
+					// fourth parameter == "filter expression" for property filter
+					// fourth parameter == "layer ids" for a group filter
+					// fifth (optional) parameter = "parent name" - ON HOLD
+
+					// possible add scenerios:
+					// add a property filter to the root of the collection
+					// add a property filter to another layer filter (property or group)
+					// add a group filter to the root of the collection
+					// add a group filter to to another group filter (cannot be a property filter)
+
+
+
 
 					// validate parameters
 					// "add" already validated
 					
-					// minimum of 3 and maximum of 4 parameters
+					// minimum of 4 and maximum of 5 parameters
 
 					bool argsGood = (tvArgs[1].TypeCode == (int)LispDataType.Text
 						&& tvArgs[2].TypeCode == (int)LispDataType.Text);
@@ -150,12 +151,12 @@ namespace LayerFilterUtil
 						// first - make sure the proposed layer filter name
 						// does not already exist
 
-						if (findAFilter(lfCollect, (string)tvArgs[1].Value) == null)
+						if (findOneFilter(lfCollect, (string)tvArgs[1].Value) == null)
 						{
 							// when null, an existing filter was not found - ok to proceed
 							if (addOneFilter(lfTree, lfCollect, (string)tvArgs[1].Value, (string)tvArgs[2].Value))
 							{
-								createListOfFilters(lfCollect, tvLists);
+								resbufOut = createListOfFilters(lfCollect, tvLists);
 							}
 							else
 							{
@@ -186,47 +187,51 @@ namespace LayerFilterUtil
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 					if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
 					{
-						// args validated - get here to delete a filter - 
-						// this will return the original filter if it was found
-						// and deleted and return null (nil) if not found
-						LayerFilter lFilter = findAFilter(lfCollect, (string)tvArgs[1].Value);
 
-						if (lFilter != null)
-						{
-							// when not null, filter found - OK to delete - if the
-							// filter found is allowed to be deleted
+						resbufOut = deleteFilter(lfCollect, lfTree, (string)tvArgs[1].Value);
 
-							if (lFilter.AllowDelete)
-							{
-								// filter can be deleted
 
-								// remove from local copy of the collection
-								lfCollect.Remove(lFilter);
+						//// args validated - get here to delete a filter - 
+						//// this will return the original filter if it was found
+						//// and deleted and return null (nil) if not found
+						//LayerFilter lFilter = findOneFilter(lfCollect, (string)tvArgs[1].Value);
 
-								// write the updated layer filter tree back to the database
-								db.LayerFilters = lfTree;
+						//if (lFilter != null)
+						//{
+						//	// when not null, filter found - OK to delete - if the
+						//	// filter found is allowed to be deleted
 
-								// update the layer palette to 
-								// show the layer filter changes
-								refreshLayerManager();
+						//	if (lFilter.AllowDelete)
+						//	{
+						//		// filter can be deleted
 
-								// format the deleted filter into a list	
-								tvLists.Add(convertFilterToList(lFilter));
+						//		// remove from local copy of the collection
+						//		lfCollect.Remove(lFilter);
 
-								// build the result buffer
-								buildResBufMultipleItem(resbufOut, tvLists);
+						//		// write the updated layer filter tree back to the database
+						//		db.LayerFilters = lfTree;
 
-							}
-							else
-							{
-								// filter cannot be deleted
-								resbufOut = null;
-							}
-						}
-						else
-						{
-							resbufOut = null;
-						}
+						//		// update the layer palette to 
+						//		// show the layer filter changes
+						//		refreshLayerManager();
+
+						//		// format the deleted filter into a list	
+						//		tvLists.Add(convertFilterToList(lFilter));
+
+						//		// build the result buffer
+						//		resbufOut = buildResBufMultipleItem(tvLists);
+
+						//	}
+						//	else
+						//	{
+						//		// filter cannot be deleted
+						//		resbufOut = null;
+						//	}
+						//}
+						//else
+						//{
+						//	resbufOut = null;
+						//}
 					}
 					else
 					{
@@ -244,6 +249,65 @@ namespace LayerFilterUtil
 
 			return resbufOut;
 		}
+
+		private ResultBuffer deleteFilter(LayerFilterCollection lfCollect, LayerFilterTree lfTree, string searchName)
+		{
+
+			LayerFilter lFilter = findOneFilter(lfCollect, searchName);
+
+			if (lFilter == null || !lFilter.AllowDelete)
+			{
+				return null;
+			} 
+
+			// filter can be deleted
+
+			// remove from local copy of the collection
+			lfCollect.Remove(lFilter);
+
+			// write the updated layer filter tree back to the database
+			db.LayerFilters = lfTree;
+
+			// update the layer palette to 
+			// show the layer filter changes
+			refreshLayerManager();
+
+			List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
+
+			// format the deleted filter into a list	
+			tvLists.Add(convertFilterToList(lFilter));
+
+			// build & return the result buffer
+			return buildResBufMultipleItem(tvLists);
+		}
+
+
+
+		/// <summary>
+		/// Finds a single filter from the Layer Filter Collection<para />
+		/// Returns a Result Buffer with the Layer Filter information
+		/// </summary>
+		/// <param name="lfCollect"></param>
+		/// <param name="searchName"></param>
+		/// <returns></returns>
+		private ResultBuffer findFilter(LayerFilterCollection lfCollect, string searchName)
+		{
+			LayerFilter lFilter = findOneFilter(lfCollect, searchName);
+
+			if (lFilter == null)
+			{
+				return null;
+			}
+
+			List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
+	
+			tvLists.Add(convertFilterToList(lFilter));
+
+			return buildResBufMultipleItem(tvLists);
+		}
+
+
+
 
 		// update the layer palette to show the 
 		// layer filter changes
@@ -292,19 +356,18 @@ namespace LayerFilterUtil
 			return true;
 		}
 
-		private void createListOfFilters(LayerFilterCollection lfCollect, List<List<TypedValue>> tvLists)
+		private ResultBuffer createListOfFilters(LayerFilterCollection lfCollect, List<List<TypedValue>> tvLists)
 		{
+
 			findFilters(lfCollect, tvLists);
 
-			if (tvLists.Count != 0)
-			{
-				buildResBufMultipleItem(resbufOut, tvLists);
-			}
-			else
+			if (tvLists.Count == 0)
 			{
 				// just in case but this should never happen
-				resbufOut = null;
+				return null;
 			}
+
+			return buildResBufMultipleItem(tvLists);;
 		}
 
 		private void displayUsageMessage()
@@ -327,8 +390,9 @@ namespace LayerFilterUtil
 		}
 
 
-		private void buildResBufMultipleItem(ResultBuffer resBuffer, List<List<TypedValue>> tvLists)
+		private ResultBuffer buildResBufMultipleItem(List<List<TypedValue>> tvLists)
 		{
+			ResultBuffer resBuffer = new ResultBuffer();
 
 			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
 
@@ -350,6 +414,8 @@ namespace LayerFilterUtil
 
 			// end the whole list
 			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			return resBuffer;
 		}
 
 		private void buildResBufSingleItem(ResultBuffer resBuffer, List<TypedValue> tvList)
@@ -392,7 +458,15 @@ namespace LayerFilterUtil
 			NestDepth--;
 		}
 
-		private LayerFilter findAFilter(LayerFilterCollection lfC, string nameToFind)
+
+		/// <summary>
+		/// Scan through the the layer filter collection and find a filter<para />
+		/// that matches the name provided - exact match is required
+		/// </summary>
+		/// <param name="lfC">A Layer Filter Collection</param>
+		/// <param name="nameToFind">The name of the Layer Filter to find</param>
+		/// <returns></returns>
+		private LayerFilter findOneFilter(LayerFilterCollection lfC, string nameToFind)
 		{
 			LayerFilter lFilterFound = null;
 
@@ -416,7 +490,7 @@ namespace LayerFilterUtil
 				{
 					if (lFilter.NestedFilters.Count != 0)
 					{
-						lFilterFound = findAFilter(lFilter.NestedFilters, nameToFind);
+						lFilterFound = findOneFilter(lFilter.NestedFilters, nameToFind);
 						if (lFilterFound != null)
 						{
 							break;
