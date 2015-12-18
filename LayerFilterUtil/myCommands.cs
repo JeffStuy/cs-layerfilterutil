@@ -89,7 +89,7 @@ namespace LayerFilterUtil
 					if (tvArgs.Length == 1)
 					{
 
-						resbufOut = createListOfFilters(lfCollect, tvLists);
+						resbufOut = listFilters(lfCollect, tvLists);
 					} 
 					else 
 					{
@@ -117,67 +117,102 @@ namespace LayerFilterUtil
 					// allow the filter to be added as a nested filter to another filter
 					// except that any filter that cannot be deleted, cannot have nested filters
 					// parameter options:
-					// first parameter == "add"
-					// second parameter == "filter type" either "property" or "group" (case does not matter)
-					// third parameter == "filter name" (cannot be duplicate)
-					// fourth parameter == "filter expression" for property filter
-					// fourth parameter == "layer ids" for a group filter
-					// fifth (optional) parameter = "parent name" - ON HOLD
+					// first (idx = 0) parameter == "add"
+					// second (idx = 1) parameter == "filter type" either "property" or "group" (case does not matter)
+					// third (idx = 2) parameter == "filter name" (cannot be duplicate)
+					// fourth (idx = 3) parameter == "filter expression" for property filter
+					// fourth (idx = 3) parameter == "layer ids" for a group filter
+					// fifth (idx = 4) (optional) parameter = "parent name" - ON HOLD
 
-					// possible add scenerios:
+					// possible add options:
 					// add a property filter to the root of the collection
 					// add a property filter to another layer filter (property or group)
 					// add a group filter to the root of the collection
 					// add a group filter to to another group filter (cannot be a property filter)
 
 
-
-
 					// validate parameters
-					// "add" already validated
-					
-					// minimum of 4 and maximum of 5 parameters
+					// by getting to this point, first parameter validated
 
-					bool argsGood = (tvArgs[1].TypeCode == (int)LispDataType.Text
-						&& tvArgs[2].TypeCode == (int)LispDataType.Text);
+					// minimum of 4 and maximum of 5 parameters - all must be text
 
-					if ((tvArgs.Length == 3 && argsGood) ||
-						(tvArgs.Length == 4 && argsGood 
-							&& tvArgs[3].TypeCode == (int)LispDataType.Text)
-						)
+					// validate that the 2nd thru 4th arg are text
+					if (tvArgs.Length != 4 && tvArgs.Length != 5) 
 					{
-						// here when correct number and type of args
+						return null;
+					}
 
-						// first - make sure the proposed layer filter name
-						// does not already exist
+					if (tvArgs[3].TypeCode != (int)LispDataType.Text
+						&& tvArgs[3].TypeCode != (int)LispDataType.DottedPair)
+					{
+						return null;
+					}
+					
+					if (tvArgs[1].TypeCode != (int)LispDataType.Text
+						|| tvArgs[2].TypeCode != (int)LispDataType.Text
+						|| (tvArgs.Length == 5
+							&& tvArgs[4].TypeCode != (int)LispDataType.Text)
+						) 
+					{
+						return null;
+					}
 
-						if (findOneFilter(lfCollect, (string)tvArgs[1].Value) == null)
-						{
-							// when null, an existing filter was not found - ok to proceed
-							if (addOneFilter(lfTree, lfCollect, (string)tvArgs[1].Value, (string)tvArgs[2].Value))
+					// at this point, we have the correct number of args and they are
+					// all text args
+					switch (((string)tvArgs[1].Value).ToLower()) 
+					{
+						case "property":
+							// two cases - number of args = 4 or 5
+
+							if (tvArgs.Length == 4)
 							{
-								resbufOut = createListOfFilters(lfCollect, tvLists);
+								// simple case - add a property filter
+								ed.WriteMessage("Adding a property filter to the root of the tree");
+								if (findOneFilter(lfCollect, (string)tvArgs[1].Value) == null)
+								{
+									// when null, an existing filter was not found - ok to proceed
+									if (addOneFilter(lfTree, lfCollect, (string)tvArgs[1].Value, (string)tvArgs[2].Value))
+									{
+										resbufOut = listFilters(lfCollect, tvLists);
+										break;
+									}
+									else
+									{
+										return null;
+									}
+
+								}
+								else
+								{
+									// not null, existing filter found - cannot proceed
+									return null;
+								}
+							} else {
+								ed.WriteMessage("Adding a poperty filter to an existing filter");
+								resbufOut = null;
+							}
+							break;
+						case "group":
+							// two cases - number or args = 4 or 5
+
+							if (tvArgs.Length == 4) 
+							{
+								// simple case = add a group filter
+								ed.WriteMessage("Adding a group filter to the root of the tree");
+								resbufOut = null;
 							}
 							else
 							{
+								// add a filter to an existing filter - except that the
+								// existing filter cannot be a property filter
+								ed.WriteMessage("Adding a group filter to an existing filter");
 								resbufOut = null;
 							}
 
-						}
-						else
-						{
-							// not null, existing filter found - cannot proceed
-							resbufOut = null;
-						}
+							break;
+						default:
+							return null;
 					}
-					else
-					{
-						// here when too many / few args 
-						// or args of wrong type
-						resbufOut = null;
-					}
-
-
 
 					break;
 				case "delete":
@@ -190,48 +225,6 @@ namespace LayerFilterUtil
 
 						resbufOut = deleteFilter(lfCollect, lfTree, (string)tvArgs[1].Value);
 
-
-						//// args validated - get here to delete a filter - 
-						//// this will return the original filter if it was found
-						//// and deleted and return null (nil) if not found
-						//LayerFilter lFilter = findOneFilter(lfCollect, (string)tvArgs[1].Value);
-
-						//if (lFilter != null)
-						//{
-						//	// when not null, filter found - OK to delete - if the
-						//	// filter found is allowed to be deleted
-
-						//	if (lFilter.AllowDelete)
-						//	{
-						//		// filter can be deleted
-
-						//		// remove from local copy of the collection
-						//		lfCollect.Remove(lFilter);
-
-						//		// write the updated layer filter tree back to the database
-						//		db.LayerFilters = lfTree;
-
-						//		// update the layer palette to 
-						//		// show the layer filter changes
-						//		refreshLayerManager();
-
-						//		// format the deleted filter into a list	
-						//		tvLists.Add(convertFilterToList(lFilter));
-
-						//		// build the result buffer
-						//		resbufOut = buildResBufMultipleItem(tvLists);
-
-						//	}
-						//	else
-						//	{
-						//		// filter cannot be deleted
-						//		resbufOut = null;
-						//	}
-						//}
-						//else
-						//{
-						//	resbufOut = null;
-						//}
 					}
 					else
 					{
@@ -249,6 +242,8 @@ namespace LayerFilterUtil
 
 			return resbufOut;
 		}
+
+		
 
 		private ResultBuffer deleteFilter(LayerFilterCollection lfCollect, LayerFilterTree lfTree, string searchName)
 		{
@@ -356,7 +351,7 @@ namespace LayerFilterUtil
 			return true;
 		}
 
-		private ResultBuffer createListOfFilters(LayerFilterCollection lfCollect, List<List<TypedValue>> tvLists)
+		private ResultBuffer listFilters(LayerFilterCollection lfCollect, List<List<TypedValue>> tvLists)
 		{
 
 			findFilters(lfCollect, tvLists);
