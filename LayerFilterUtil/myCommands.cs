@@ -227,13 +227,13 @@ namespace LayerFilterUtil
 								List<string> layerNames = new List<string>();
 
 
-								// store the list of layers into a list
+								// store the aray of layers into a list
 								layerNames = getLayersFromArg(tvArgs);
 
 								if (layerNames.Count != 0)
 								{
 									// process the list of layers and get their layer ids
-									layIds = getSelectedLayerIds(layerNames);
+									layIds = getLayerIds(layerNames);
 
 									if (layIds.Count != 0)
 									{
@@ -263,17 +263,34 @@ namespace LayerFilterUtil
 								// F_PARENT = filter parent is not blank - already verified
 								// F_LAYERS = begining of the list of layers to include in the group filter
 
-								ed.WriteMessage("Adding a group filter to an existing filter: " + (string)tvArgs[F_PARENT].Value + "\n");
-
 								LayerFilter lfParent = findOneFilter(lfCollect, (string)tvArgs[F_PARENT].Value);
 
-								if (lfParent != null)
-								{
-									return null;
-								}
+								ObjectIdCollection layIds = new ObjectIdCollection();
+								List<string> layerNames = new List<string>();
 
-								// get here - something did not work - return nil
+								// store the aray of layers into a list
+								layerNames = getLayersFromArg(tvArgs);
+
+								if (layerNames.Count != 0 && lfParent != null)
+								{
+									// process the list of layers and get their layer ids
+									layIds = getLayerIds(layerNames);
+
+									if (layIds.Count != 0)
+									{
+										// now have a list of layer id's for the layer group
+										// now add the layer filter group and its layer id's
+
+										if (addOneGroupFilter(lfTree, lfCollect,
+											(string)tvArgs[F_NAME].Value, lfParent, layIds))
+										{
+											return formatFilterAsResBuffer(lfCollect, (string)tvArgs[F_NAME].Value);
+										}
+									}
+								}
+								// provide the return information
 								return null;
+								break;
 							}
 
 							break;
@@ -342,7 +359,7 @@ namespace LayerFilterUtil
 		/// </summary>
 		/// <param name="layerNames">A List of layerNames</param>
 		/// <returns>A collection of LayerId's</returns>
-		private ObjectIdCollection getSelectedLayerIds(List<string> layerNames)
+		private ObjectIdCollection getLayerIds(List<string> layerNames)
 		{
 			ObjectIdCollection layIds = new ObjectIdCollection();
 
@@ -476,34 +493,51 @@ namespace LayerFilterUtil
 		private bool addOneGroupFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect,
 			string Name, LayerFilter Parent, ObjectIdCollection layIds )
 		{
-
 			// validate that this group filter is allowed to be added - 
 			// if this is to be added to a Parent filter, the parent filter
 			// must allow nesting
 			// cannot be an ID (property) filter
-			if (Parent != null && (Parent.AllowNested != true || Parent.IsIdFilter == true))
+			if (Parent != null && (Parent.AllowNested != true || Parent.IsIdFilter != true))
 			{
 				return false;
 			}
 
-			// create a blank layer filter group
-			LayerGroup lg = new LayerGroup();
-
-			// set its name
-			lg.Name = Name;
-
-			// add each layer id for the group
-			foreach (ObjectId layId in layIds)
+			try
 			{
-				lg.LayerIds.Add(layId);
+				// create a blank layer filter group
+				LayerGroup lg = new LayerGroup();
+
+				// set its name
+				lg.Name = Name;
+
+				// add each layer id for the group
+				foreach (ObjectId layId in layIds)
+				{
+					lg.LayerIds.Add(layId);
+				}
+
+				if (Parent == null)
+				{
+					// add the layer filter group to the collection
+					lfCollect.Add(lg);
+				}
+				else
+				{
+					// add the layer filter as a nested filter
+					Parent.NestedFilters.Add(lg);
+				}
+
+				// update the database with the updated tree
+				db.LayerFilters = lfTree;
+
+				// update the layer palette to show the
+				// layer filter changes
+				refreshLayerManager();
 			}
-
-			// add the layer filter group to the collection
-			lfCollect.Add(lg);
-
-			// update the database with the updated tree
-			db.LayerFilters = lfTree;
-
+			catch (System.Exception)
+			{
+				return false;
+			}
 			return true;
 		}
 
@@ -551,7 +585,7 @@ namespace LayerFilterUtil
 				// layer filter changes
 				refreshLayerManager();
 			}
-			catch (System.Exception ex)
+			catch (System.Exception)
 			{
 				// something did not work, return false
 				return false;
