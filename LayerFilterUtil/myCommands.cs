@@ -101,14 +101,10 @@ namespace LayerFilterUtil
 					// validate the args buffer, 2nd level - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
-
 						resbufOut = listFilters(lfCollect, tvLists);
 					} 
-					else 
-					{
-						resbufOut = null;
-					}
-
+					
+					resbufOut = null;
 					break;
 				case "find":
 					// finding 1 existing layer filter - did only 2 args get
@@ -116,14 +112,10 @@ namespace LayerFilterUtil
 					if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
 					{
 						// search for the layer filter 
-
 						resbufOut = formatFilterAsResBuffer(lfCollect, ((string)tvArgs[1].Value));
+					}
 
-					}
-					else
-					{
-						resbufOut = null;
-					}
+					resbufOut = null;
 					break;
 				case "add":
 
@@ -178,6 +170,9 @@ namespace LayerFilterUtil
 							return null;
 					}
 
+
+					// *** parameters basic validation complete ***
+
 					// at this point, we have the correct type of args (text or nil)
 					switch (((string)tvArgs[F_TYPE].Value).ToLower())
 					{
@@ -229,36 +224,32 @@ namespace LayerFilterUtil
 								// F_PARENT = filter parent is blank or nil - already verified
 								// F_LAYERS = begining of the list of layers to include in the group filter
 								ObjectIdCollection layIds = new ObjectIdCollection();
-								SortedList<string, int> layerNames = new SortedList<string, int>();
+								List<string> layerNames = new List<string>();
 
 
-								// store the list of layers into a sorted list
+								// store the list of layers into a list
 								layerNames = getLayersFromArg(tvArgs);
 
-								if (layerNames.Count == 0)
+								if (layerNames.Count != 0)
 								{
-									return null;
+									// process the list of layers and get their layer ids
+									layIds = getSelectedLayerIds(layerNames);
+
+									if (layIds.Count != 0)
+									{
+										// now have a list of layer id's for the layer group
+										// now add the layer filter group and its layer id's
+
+										if (addOneGroupFilter(lfTree, lfCollect,
+											(string)tvArgs[F_NAME].Value, null, layIds))
+										{
+											return formatFilterAsResBuffer(lfCollect, (string)tvArgs[F_NAME].Value);
+										}
+									}
 								}
-
-								// process the list of layers and get their layer ids
-								layIds = getSelectedLayerIds(layerNames);
-
-								if (layIds.Count == 0) 
-								{
-									return null;
-								}
-
-								// now have a list of layer id's for the layer group
-								// now add the layer filter group and its layer id's
-
-								if (!addOneGroupFilter(lfTree, lfCollect, 
-									(string)tvArgs[F_NAME].Value, null, layIds))
-								{
-									return null;
-								}
-
-								// provide the return information
-								return formatFilterAsResBuffer(lfCollect, (string)tvArgs[F_NAME].Value);
+									// provide the return information
+								return null;
+								break;
 							}
 							else
 							{
@@ -320,31 +311,38 @@ namespace LayerFilterUtil
 			return resbufOut;
 		}
 
-		private SortedList<string, int> getLayersFromArg(TypedValue[] tvArgs)
-		{
-			SortedList<string, int> layerNames = new SortedList<string, int>();
 
+		/// <summary>
+		/// Created a List from the list of layers provided
+		/// </summary>
+		/// <param name="tvArgs">The Argument array</param>
+		/// <returns></returns>
+		private List<string> getLayersFromArg(TypedValue[] tvArgs)
+		{
+			List<string> layerNames = new List<string>();
+
+			// if there are too few arguments (== no layers), return null
 			if (F_LAYERS > tvArgs.Length)
 			{
 				return layerNames;
 			}
-			
+
 
 			// store the list of layers to add into a sorted list
 			for (int i = F_LAYERS; i < tvArgs.Length; i++)
 			{
-				layerNames.Add(((string)tvArgs[i].Value).ToLower(), 1);
+				layerNames.Add(((string)tvArgs[i].Value).ToLower());
 			}
 
 			return layerNames;
 		}
 
 		/// <summary>
-		/// Create a collection of ObjectId's (LayerId's)
+		/// Create a collection of Object Id's (LayerId's)
 		/// </summary>
-		/// <param name="layerNames">A SortedList of layerNames</param>
+		/// <param name="layerNames">A List of layerNames</param>
 		/// <returns>A collection of LayerId's</returns>
-		private ObjectIdCollection getSelectedLayerIds(SortedList<string, int> layerNames)
+		private ObjectIdCollection getSelectedLayerIds(List<string> layerNames)
 		{
 			ObjectIdCollection layIds = new ObjectIdCollection();
 
@@ -368,7 +366,7 @@ namespace LayerFilterUtil
 					// check the name of the layer against the list of names to
 					// add - if the key is contained, save the layer id and remove the
 					// key from the add list
-					if (layerNames.ContainsKey(ltr.Name.ToLower()))
+					if (layerNames.IndexOf(ltr.Name.ToLower()) >= 0)
 					{
 						layIds.Add(layId);
 						layerNames.Remove(ltr.Name.ToLower());
@@ -385,6 +383,7 @@ namespace LayerFilterUtil
 			}
 
 			return layIds;
+
 		}
 
 		
