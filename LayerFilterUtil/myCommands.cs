@@ -462,8 +462,6 @@ namespace LayerFilterUtil
 
 		}
 
-
-		#region formatFilterAsResBuffer
 		/// <summary>
 		/// Finds a single filter from the Layer Filter Collection<para />
 		/// Returns a Result Buffer with the Layer Filter information
@@ -485,8 +483,7 @@ namespace LayerFilterUtil
 			tvLists.Add(convertFilterToList(lFilter));
 
 			return buildResBufMultipleItem(tvLists);
-		}  
-		#endregion
+		}
 
 
 		// add a group layer filter to a collection
@@ -540,9 +537,6 @@ namespace LayerFilterUtil
 			}
 			return true;
 		}
-
-
-
 
 
 		// add one layer filter to an existing parent layer filter (nested filter)
@@ -742,9 +736,6 @@ namespace LayerFilterUtil
 			return lFilterFound;
 		}
 
-
-
-		#region convertFilterToList
 		/// <summary>
 		/// Convert the information of a layer filter and format
 		/// it as a AutoCAD list of dotted pairs
@@ -807,9 +798,7 @@ namespace LayerFilterUtil
 
 			return tvList;
 		} 
-		#endregion
 
-		#region makeDottedPair - boolean only
 		/// <summary>
 		/// create a dotted pair in the TypedValue list based on
 		/// the DXF code and a boolean value
@@ -823,11 +812,7 @@ namespace LayerFilterUtil
 			// to short
 			makeDottedPair(tvList, dxfCode, (short)(Value ? 1 : 0));
 		}
-		
-		#endregion
 
-
-		#region makeDottedPair - other than boolean
 		/// <summary>
 		/// Update a TypedValue list with a dotted pair based on
 		/// the DXF code and value (other than boolean value)
@@ -870,9 +855,35 @@ namespace LayerFilterUtil
 			// terminate the dotted pair
 			tvList.Add(new TypedValue((int)LispDataType.DottedPair));
 		} 
-		#endregion
 
 
+		/// <summary>
+		/// List the information about the args passed to the command
+		/// </summary>
+		/// <param name="tvArgs">Array of args passed to the command</param>
+		private void displayArgs(TypedValue[] tvArgs)
+		{
+			for (int i = 0; i < tvArgs.Length; i++)
+			{
+				ed.WriteMessage("arg#: " + i
+					+ " : type: " + " \"" + describeLispDateType(tvArgs[i].TypeCode) + "\" (" + tvArgs[i].TypeCode + ")"
+					+ " : value: >" + tvArgs[i].Value + "<");
+
+				if (tvArgs[i].TypeCode == (short)LispDataType.Text)
+				{
+					ed.WriteMessage(" : length: " + ((string)tvArgs[i].Value).Length);
+				}
+
+				ed.WriteMessage("\n");
+
+			}
+		}
+
+		/// <summary>
+		/// Provide the description for the LispDataType
+		/// </summary>
+		/// <param name="tv">Short of the LispDataType</param>
+		/// <returns></returns>
 		private string describeLispDateType(short tv)
 		{
 		// todo - complete the below list
@@ -910,24 +921,5 @@ namespace LayerFilterUtil
 
 			}
 		}
-
-		private void displayArgs(TypedValue[] tvArgs)
-		{
-			for (int i = 0; i < tvArgs.Length; i++)
-			{
-				ed.WriteMessage("arg#: " + i
-					+ " : type: " + " \"" + describeLispDateType(tvArgs[i].TypeCode) + "\" (" + tvArgs[i].TypeCode + ")"
-					+ " : value: >" + tvArgs[i].Value + "<");
-
-				if (tvArgs[i].TypeCode == (short)LispDataType.Text)
-				{
-					ed.WriteMessage(" : length: " + ((string)tvArgs[i].Value).Length);
-				}
-
-				ed.WriteMessage("\n");
-
-			}
-		}
-
 	}
 }
