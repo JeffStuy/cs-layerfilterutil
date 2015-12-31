@@ -341,7 +341,7 @@ namespace LayerFilterUtil
 
 						NestDepth = 0;
 
-						lfList = searchFilters(lfCollect, isGroup: true);
+						lfList = searchFilters(lfCollect, allowDelete: false);
 
 						ed.WriteMessage("\ntvLists:");
 						ed.WriteMessage("\ncount: " + lfList.Count);
@@ -375,6 +375,23 @@ namespace LayerFilterUtil
 
 			return resbufOut;
 		}
+
+
+		private ResultBuffer deleteFilters(LayerFilterCollection lfCollect, 
+			LayerFilterTree lfTree,  List<LayerFilter> lFilters)
+		{
+			ResultBuffer resBuffer = new ResultBuffer();
+
+			if (lFilters.Count == 0) { return resBuffer; }
+
+
+
+
+
+			return resBuffer;
+		}
+
+
 
 
 		/// <summary>
@@ -775,11 +792,11 @@ namespace LayerFilterUtil
 
 			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
 
-			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
+			if (allowDelete != null) {if (allowDelete == lFilter.AllowDelete) {return false; } }
 
-			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
+			if (isGroup != null) { if (isGroup == lFilter.IsIdFilter) { return false; } }
 
-			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
+			if (allowNested != null) { if (allowNested == lFilter.AllowNested) { return false; } }
 
 			// process nestCount
 			// this allows for a conditional + a number to be
@@ -788,7 +805,7 @@ namespace LayerFilterUtil
 			{
 				// setup for the nestCount check
 
-				Match m = Regex.Match(nestCount,"^(=|==|<=|>=|!=|<|>)(\\d+)");
+				Match m = Regex.Match(nestCount,@"^(=|==|<=|>=|!=|<|>)\s*(\d+)");
 
 				int nestCountValue;
 
