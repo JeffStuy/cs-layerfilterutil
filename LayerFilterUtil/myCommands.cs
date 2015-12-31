@@ -12,12 +12,25 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.LayerManager;
+using System.Text.RegularExpressions;
 
 // This line is not mandatory, but improves loading performances
 [assembly: CommandClass(typeof(LayerFilterUtil.MyCommands))]
 
 namespace LayerFilterUtil
 {
+
+	public class TestParam
+	{
+		bool Test;
+		bool Value;
+
+		public TestParam(bool Test, bool Value)
+		{
+			this.Test = Test;
+			this.Value = Value;
+		}
+	}
 
 	// This class is instantiated by AutoCAD for each document when
 	// a command is called by the user the first time in the context
@@ -49,9 +62,14 @@ namespace LayerFilterUtil
 		Database db;
 		Editor ed;
 
+
+
+
 		[LispFunction("LayerFilterUtil")]
 		public ResultBuffer LayerFilterUtil(ResultBuffer args) // This method can have any name
 		{
+
+
 			doc = Application.DocumentManager.MdiActiveDocument;	// get reference to the current document
 			db = doc.Database;										// get reference to the current dwg database
 			ed = doc.Editor;											// get reference to the current editor (text window)
@@ -301,20 +319,50 @@ namespace LayerFilterUtil
 
 					break;
 				case "delete":
-					// deleting existing layer filter(s) - did only 2 args get
+					// deleting existing layer filter(s) - only 2 args allowed
 					// special case filter to delete = "*" means all of the existing filters
 					// except those filters marked as "cannot delete"
 					// provided and is the 2nd arg a text arg?  if yes, proceed
-					if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
+
+					if ((string)tvArgs[1].Value != "*")
 					{
+						if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
+						{
 
-						resbufOut = deleteFilter(lfCollect, lfTree, (string)tvArgs[1].Value);
+							resbufOut = deleteFilter(lfCollect, lfTree, (string)tvArgs[1].Value);
 
+						}
 					}
 					else
 					{
-						resbufOut = null;
+						// special case, name to delete is *
+						// delete all filters that are not marked as cannot delete
+						List<LayerFilter> lfList = new List<LayerFilter>();
+
+						NestDepth = 0;
+
+						lfList = searchFilters(lfCollect, isGroup: true);
+
+						ed.WriteMessage("\ntvLists:");
+						ed.WriteMessage("\ncount: " + lfList.Count);
+
+						int j = 0;
+
+						foreach (LayerFilter lf in lfList)
+						{
+							ed.WriteMessage("\nfilter #: " + j++ + " name: " + lf.Name);
+						}
+
+						//foreach (List<TypedValue> tvList in tvLists)
+						//{
+						//	ed.WriteMessage("\nList #: " + j++ + "\n");
+						//	displayArgs(tvList.ToArray());
+						//}
+
 					}
+
+		
+					resbufOut = null;
 					break;
 				case "usage":
 					displayUsageMessage();
@@ -665,8 +713,132 @@ namespace LayerFilterUtil
 		}
 
 		/**
-		 * Find all layer filters and adds each layer filter to the List
-		 */ 
+		 * Find all layer filters that meet the criteria provided
+		 */
+		private List<LayerFilter> searchFilters(LayerFilterCollection lfC, 
+			string Name = null, string Parent = null, 
+			bool? allowDelete = null, bool? isGroup = null, 
+			bool? allowNested = null, string nestCount = null)
+		{
+			// create the blank list
+			List<LayerFilter> lfList = new List<LayerFilter>();
+
+			if (lfC.Count == 0 || NestDepth > 100) { return lfList; }
+
+			// prevent from getting too deep
+			NestDepth++;
+
+			foreach (LayerFilter lFilter in lfC)
+			{
+				if (validateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+					lfList.Add(lFilter);
+				}
+
+				if (lFilter.NestedFilters.Count != 0)
+				{
+					List<LayerFilter> lfListReturn = 
+						searchFilters(lFilter.NestedFilters, Name, Parent, allowDelete, isGroup, allowNested, nestCount);
+
+					if (lfListReturn.Count != 0)
+					{
+						lfList.AddRange(lfListReturn);
+					}
+				}
+			}
+
+			return lfList;
+
+		}
+
+		/// <summary>
+		/// Based on the criteria provided, determine if the LayerFilter matches
+		/// all criteria fields can be null - a null criteria indicates to not
+		/// check that criteria item
+		/// </summary>
+		/// <param name="lFilter">LayerFilter to check</param>
+		/// <param name="Name">Name criteria</param>
+		/// <param name="Parent">Parent criteria</param>
+		/// <param name="allowDelete">allowDelete flag criteria</param>
+		/// <param name="isGroup">is group filter flag criteria</param>
+		/// <param name="allowNested">allowNested flag criteria</param>
+		/// <param name="nestCount">nestCount (as a string) criteria - 
+		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
+		/// <returns></returns>
+
+		private bool validateFilter(LayerFilter lFilter, 
+			string Name = null, string Parent = null, 
+			bool? allowDelete = null, bool? isGroup = null, 
+			bool? allowNested = null, string nestCount = null) 
+		{
+			// make easy tests first
+			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
+
+			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
+
+			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
+
+			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
+
+			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
+
+			// process nestCount
+			// this allows for a conditional + a number to be
+			// specified to determine a match
+			if (nestCount != null && nestCount.Length > 1)
+			{
+				// setup for the nestCount check
+
+				Match m = Regex.Match(nestCount,"^(=|==|<=|>=|!=|<|>)(\\d+)");
+
+				int nestCountValue;
+
+				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
+				{
+					bool nestCountResult = false;
+
+					switch (m.Groups[1].Value)
+					{
+						case "=":
+						case "==":
+							nestCountResult = lFilter.NestedFilters.Count == nestCountValue;
+							break;
+						case "<":
+							nestCountResult = lFilter.NestedFilters.Count < nestCountValue;
+							break;
+						case "<=":
+							nestCountResult = lFilter.NestedFilters.Count <= nestCountValue;
+							break;
+						case ">":
+							nestCountResult = lFilter.NestedFilters.Count > nestCountValue;
+							break;
+						case ">=":
+							nestCountResult = lFilter.NestedFilters.Count >= nestCountValue;
+							break;
+						case "!=":
+							nestCountResult = lFilter.NestedFilters.Count != nestCountValue;
+							break;
+						default:
+							nestCountResult = false;
+							break;
+					}
+
+					if (!nestCountResult) { return false; }
+				}
+				else
+				{
+					// regex match failed or int.TryParse failed
+					// cannot proceed - return false
+					return false;
+				}
+			}
+
+			// get here, all tests passed
+			return true;
+		}
+
+
+
+
 		private void findFilters(LayerFilterCollection lfC, List<List<TypedValue>> tvLists)
 		{
 			// if nothing in the collection, return null
@@ -689,8 +861,6 @@ namespace LayerFilterUtil
 			}
 			NestDepth--;
 		}
-
-
 		/// <summary>
 		/// Scan through the the layer filter collection and find a filter<para />
 		/// that matches the name provided - exact match is required
@@ -791,7 +961,7 @@ namespace LayerFilterUtil
 			makeDottedPair(tvList, FILTERDELFLGDXF, lFilter.AllowDelete);
 			makeDottedPair(tvList, FILTERPARENTDXF,
 				(lFilter.Parent != null ? lFilter.Parent.Name : ""));
-			makeDottedPair(tvList, FILTERGRPFLGDXF, lFilter.IsIdFilter);
+			makeDottedPair(tvList, FILTERGRPFLGDXF, lFilter.IsIdFilter);		// true = group filter; false = property filter
 			makeDottedPair(tvList, FILTERNESTFLGDXF, lFilter.AllowNested);
 			makeDottedPair(tvList, FILTERNESTCNTDXF, lFilter.NestedFilters.Count);
 
