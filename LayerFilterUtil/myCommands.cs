@@ -1,18 +1,16 @@
 ﻿// (C) Copyright 2015 by  
 //
 using System;
-using System.Diagnostics;
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
-using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.LayerManager;
 using System.Text.RegularExpressions;
+
 
 // This line is not mandatory, but improves loading performances
 [assembly: CommandClass(typeof(LayerFilterUtil.MyCommands))]
@@ -27,25 +25,27 @@ namespace LayerFilterUtil
 	public class MyCommands
 	{
 
-		const int FUNCTION = 0;
-		const int F_NAME = 1;
-		const int F_TYPE = 2;
-		const int F_PARENT = 3;
-		const int F_EXPRESSION = 4;
-		const int F_LAYERS = 4;
-		const int F_MIN = 5;
+		// constants for the position of elements
+		// in the argument passed
+		private const int FUNCTION = 0;
+		private const int FILTER_NAME = 1;
+		private const int FILTER_TYPE = 2;
+		private const int FILTER_PARENT = 3;
+		private const int FILTER_EXPRESSION = 4;
+		private const int FILTER_LAYERS = 4;
+		private const int FILTER_MIN = 5;
 
-		static int TabLevel = 0;
-		static int NestDepth = 0;
+		private static int nestDepth;
 
-		ResultBuffer resbufOut;
+		private ResultBuffer resbufOut;
 
-		Document doc;
-		Database db;
-		Editor ed;
+		private Document doc;
+		private Database db;
+		private Editor ed;
 
 
 		[LispFunction("LayerFilterUtil")]
+
 		public ResultBuffer LayerFilterUtil(ResultBuffer args) // This method can have any name
 		{
 
@@ -59,7 +59,7 @@ namespace LayerFilterUtil
 			TypedValue[] tvArgs;
 
 			// reset for each usage
-			NestDepth = 0;
+			nestDepth = 0;
 
 			// process the args buffer
 			// if passed is null, no good return null
@@ -70,7 +70,7 @@ namespace LayerFilterUtil
 
 				// if the first argument is not text
 				// return null
-				if (tvArgs[0].TypeCode != (int)LispDataType.Text)
+				if (tvArgs[FUNCTION].TypeCode != (int)LispDataType.Text)
 				{
 					return null;
 				}
@@ -90,7 +90,7 @@ namespace LayerFilterUtil
 			LayerFilterTree lfTree = db.LayerFilters;
 			LayerFilterCollection lfCollect = lfTree.Root.NestedFilters;
 
-			switch (((string)tvArgs[0].Value).ToLower())
+			switch (((string)tvArgs[FUNCTION].Value).ToLower())
 			{
 				case "list":
 					// validate the args buffer, 2nd level - there can be only a single argument
@@ -104,7 +104,7 @@ namespace LayerFilterUtil
 				case "find":
 					// finding 1 existing layer filter - did only 2 args get
 					// provided and is the 2nd arg a text arg?  if yes, proceed
-					if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
+					if (tvArgs.Length == 2 && tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
 					{
 						// search for the layer filter 
 						return FindFilter(lfCollect, ((string)tvArgs[1].Value));
@@ -119,11 +119,11 @@ namespace LayerFilterUtil
 					// except that any filter that cannot be deleted, cannot have nested filters
 					// parameter options:
 					// first	(idx = 0 FUNCTION) parameter == "add"
-					// second	(idx = 1 F_NAME) parameter == "filter name" (cannot be duplicate)
-					// third	(idx = 2 F_TYPE) parameter == "filter type" either "property" or "group" (case does not matter)
-					// fifth	(idx = 3 F_PARENT) parameter == "parent name" or ("" or nil) for no parent name
-					// fourth	(idx = 4 F_EXPRESSION) parameter == "filter expression" for property filter
-					// fourth	(idx = 4 F_LAYERS) parameter == "layer ids" for a group filter
+					// second	(idx = 1 FILTER_NAME) parameter == "filter name" (cannot be duplicate)
+					// third	(idx = 2 FILTER_TYPE) parameter == "filter type" either "property" or "group" (case does not matter)
+					// fifth	(idx = 3 FILTER_PARENT) parameter == "parent name" or ("" or nil) for no parent name
+					// fourth	(idx = 4 FILTER_EXPRESSION) parameter == "filter expression" for property filter
+					// fourth	(idx = 4 FILTER_LAYERS) parameter == "layer ids" for a group filter
 					
 
 					// possible add options:
@@ -140,12 +140,14 @@ namespace LayerFilterUtil
 					// except those filters marked as "cannot delete"
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 
-					if ((string)tvArgs[1].Value != "*")
+					if ((string)tvArgs[FILTER_NAME].Value != "*")
 					{
-						if (tvArgs.Length == 2 && tvArgs[1].TypeCode == (int)LispDataType.Text)
-						{
+						//ed.WriteMessage("\n@1 name= " + (string)tvArgs[FILTER_NAME].Value);
 
-							return DeleteFilter(lfTree, lfCollect, (string)tvArgs[1].Value);
+						if (tvArgs.Length == 2 && tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
+						{
+							//ed.WriteMessage("\n@1.1"); 
+							return DeleteOneFilter(lfTree, lfCollect, (string)tvArgs[FILTER_NAME].Value);
 
 						}
 					}
@@ -154,12 +156,16 @@ namespace LayerFilterUtil
 						// special case, name to delete is *
 						// delete all filters that are not marked as cannot delete
 
-						NestDepth = 0;
+						nestDepth = 0;
 
-						List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: false);
+
+						//ed.WriteMessage("\n@1");
+
+						List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
 
 						if (lfList != null && lfList.Count > 0)
 						{
+							//ed.WriteMessage("\n@100");
 							return DeleteFilters(lfTree, lfCollect, lfList);
 						}
 
@@ -177,6 +183,11 @@ namespace LayerFilterUtil
 			return resbufOut;
 		}
 
+		/// <summary>
+		/// List all of the layer filters
+		/// </summary>
+		/// <param name="lfCollect"></param>
+		/// <returns></returns>
 		private ResultBuffer ListFilters(LayerFilterCollection lfCollect)
 		{
 			return BuildResBuffer(SearchFilters(lfCollect));
@@ -203,7 +214,7 @@ namespace LayerFilterUtil
 		}
 
 		/// <summary>
-		/// Add filter
+		/// Add a filter
 		/// </summary>
 		/// <param name="lfTree"></param>
 		/// <param name="lfCollect"></param>
@@ -219,18 +230,18 @@ namespace LayerFilterUtil
 			// parameters 1 & 2 must be text
 			// parameter 3 must be text or nil
 			// or new filter cannot already exist
-			if (tvArgs.Length < F_MIN
-				|| tvArgs[F_NAME].TypeCode != (int)LispDataType.Text
-				|| tvArgs[F_TYPE].TypeCode != (int)LispDataType.Text
-				|| (tvArgs[F_PARENT].TypeCode != (int)LispDataType.Text
-				&& tvArgs[F_PARENT].TypeCode != (int)LispDataType.Nil)
-				|| SearchOneFilter(lfCollect, Name: (string)tvArgs[F_NAME].Value) != null)
+			if (tvArgs.Length < FILTER_MIN
+				|| tvArgs[FILTER_NAME].TypeCode != (int)LispDataType.Text
+				|| tvArgs[FILTER_TYPE].TypeCode != (int)LispDataType.Text
+				|| (tvArgs[FILTER_PARENT].TypeCode != (int)LispDataType.Text
+				&& tvArgs[FILTER_PARENT].TypeCode != (int)LispDataType.Nil)
+				|| SearchOneFilter(lfCollect, Name: (string)tvArgs[FILTER_NAME].Value) != null)
 			{
 				return null;
 			}
 
 			// parameter 4+ must be text
-			for (int i = F_EXPRESSION; i < tvArgs.Length; i++)
+			for (int i = FILTER_EXPRESSION; i < tvArgs.Length; i++)
 			{
 				if (tvArgs[i].TypeCode != (int)LispDataType.Text)
 					return null;
@@ -240,23 +251,23 @@ namespace LayerFilterUtil
 			// *** parameters basic validation complete ***
 
 			// at this point, we have the correct type of args (text or nil)
-			switch (((string)tvArgs[F_TYPE].Value).ToLower())
+			switch (((string)tvArgs[FILTER_TYPE].Value).ToLower())
 			{
 				// add a property filter
 				case "property":
 
 					// two cases - add to root of tree or add to existing
-					// if tvArgs[F_PARENT] == "" or tvArgs[F_PARENT] == nil, add to tree root
-					// if tvArgs[F_PARENT] == string, add to existing parent
+					// if tvArgs[FILTER_PARENT] == "" or tvArgs[FILTER_PARENT] == nil, add to tree root
+					// if tvArgs[FILTER_PARENT] == string, add to existing parent
 
-					if (tvArgs[F_PARENT].TypeCode == (int)LispDataType.Nil || ((string)tvArgs[F_PARENT].Value).Length == 0)
+					if (tvArgs[FILTER_PARENT].TypeCode == (int)LispDataType.Nil || ((string)tvArgs[FILTER_PARENT].Value).Length == 0)
 					{
 						// already checked that new filter does not exist - ok to proceed
 						// add a property filter with the parent being null
-						if (AddPropertyFilter(lfTree, lfCollect, (string)tvArgs[F_NAME].Value, null, (string)tvArgs[F_EXPRESSION].Value))
+						if (AddPropertyFilter(lfTree, lfCollect, (string)tvArgs[FILTER_NAME].Value, null, (string)tvArgs[FILTER_EXPRESSION].Value))
 						{
 							// filter added, return the data about the new filter
-							return FindFilter(lfCollect, (string)tvArgs[F_NAME].Value);
+							return FindFilter(lfCollect, (string)tvArgs[FILTER_NAME].Value);
 						}
 
 					}
@@ -264,16 +275,16 @@ namespace LayerFilterUtil
 					{
 						// bit more complex - add a layer filter to an existing layer filter (nested layer filter)
 						// parent filter must exist
-						List<LayerFilter> lfList = SearchOneFilter(lfCollect, (string)tvArgs[F_PARENT].Value);
+						List<LayerFilter> lfList = SearchOneFilter(lfCollect, (string)tvArgs[FILTER_PARENT].Value);
 
 						if (lfList != null)
 						{
 							// already checked that the new filter does not exist - ok to proceed
 							// add a property filter using a parent
-							if (AddPropertyFilter(lfTree, lfCollect, (string)tvArgs[F_NAME].Value, lfList[0], (string)tvArgs[F_EXPRESSION].Value))
+							if (AddPropertyFilter(lfTree, lfCollect, (string)tvArgs[FILTER_NAME].Value, lfList[0], (string)tvArgs[FILTER_EXPRESSION].Value))
 							{
 								// filter added, return data about the filter
-								return FindFilter(lfCollect, (string)tvArgs[F_NAME].Value);
+								return FindFilter(lfCollect, (string)tvArgs[FILTER_NAME].Value);
 							}
 						}
 					}
@@ -285,16 +296,16 @@ namespace LayerFilterUtil
 
 					// two cases - have or have not parent
 
-					if (tvArgs[F_PARENT].TypeCode == (int)LispDataType.Nil || ((string)tvArgs[F_PARENT].Value).Length == 0)
+					if (tvArgs[FILTER_PARENT].TypeCode == (int)LispDataType.Nil || ((string)tvArgs[FILTER_PARENT].Value).Length == 0)
 					{
 						// simple case - add group filter to the tree root
 
 						// args at this point:
 						// FUNCTION = "add" - already verified
-						// F_NAME = filter name - already verified
-						// F_TYPE = "group" - already verified
-						// F_PARENT = filter parent is blank or nil - already verified
-						// F_LAYERS = begining of the list of layers to include in the group filter
+						// FILTER_NAME = filter name - already verified
+						// FILTER_TYPE = "group" - already verified
+						// FILTER_PARENT = filter parent is blank or nil - already verified
+						// FILTER_LAYERS = begining of the list of layers to include in the group filter
 						ObjectIdCollection layIds = new ObjectIdCollection();
 
 						// store the aray of layers into a list
@@ -311,9 +322,9 @@ namespace LayerFilterUtil
 								// now add the layer filter group and its layer id's
 
 								if (AddGroupFilter(lfTree, lfCollect,
-									(string)tvArgs[F_NAME].Value, null, layIds))
+									(string)tvArgs[FILTER_NAME].Value, null, layIds))
 								{
-									return FindFilter(lfCollect, (string)tvArgs[F_NAME].Value);
+									return FindFilter(lfCollect, (string)tvArgs[FILTER_NAME].Value);
 								}
 							}
 						}
@@ -328,12 +339,12 @@ namespace LayerFilterUtil
 
 						// args at this point:
 						// FUNCTION = "add" - already verified
-						// F_NAME = filter name - already verified (data type)
-						// F_TYPE = "group" - already verified
-						// F_PARENT = filter parent is not blank - already verified
-						// F_LAYERS = begining of the list of layers to include in the group filter
+						// FILTER_NAME = filter name - already verified (data type)
+						// FILTER_TYPE = "group" - already verified
+						// FILTER_PARENT = filter parent is not blank - already verified
+						// FILTER_LAYERS = begining of the list of layers to include in the group filter
 
-						List<LayerFilter> lfList = SearchOneFilter(lfCollect, (string)tvArgs[F_PARENT].Value);
+						List<LayerFilter> lfList = SearchOneFilter(lfCollect, (string)tvArgs[FILTER_PARENT].Value);
 
 						// store the aray of layers into a list
 						 List<string> layerNames = getLayersFromArg(tvArgs);
@@ -350,9 +361,9 @@ namespace LayerFilterUtil
 								// now add the layer filter group and its layer id's
 
 								if (AddGroupFilter(lfTree, lfCollect,
-									(string)tvArgs[F_NAME].Value, lfList[0], layIds))
+									(string)tvArgs[FILTER_NAME].Value, lfList[0], layIds))
 								{
-									return FindFilter(lfCollect, (string)tvArgs[F_NAME].Value);
+									return FindFilter(lfCollect, (string)tvArgs[FILTER_NAME].Value);
 								}
 							}
 						}
@@ -424,6 +435,15 @@ namespace LayerFilterUtil
 			return true;
 		}
 
+		/// <summary>
+		/// Add a group filter
+		/// </summary>
+		/// <param name="lfTree"></param>
+		/// <param name="lfCollect"></param>
+		/// <param name="Name"></param>
+		/// <param name="Parent"></param>
+		/// <param name="layIds"></param>
+		/// <returns></returns>
 		private bool AddGroupFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect,
 			string Name, LayerFilter Parent, ObjectIdCollection layIds )
 		{
@@ -476,6 +496,47 @@ namespace LayerFilterUtil
 		}
 
 		/// <summary>
+		/// Delete the layer filter provided
+		/// </summary>
+		/// <param name="lfTree"></param>
+		/// <param name="lfCollect"></param>
+		/// <param name="lFilter"></param>
+		/// <returns></returns>
+		private bool DeleteFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, LayerFilter lFilter)
+		{
+			// if the LayerFilter provided is null, return false
+			if (lFilter == null)
+			{
+				return false;
+			}
+
+			//ed.WriteMessage("\n@7 name= " + lFilter.Name);
+			//ed.WriteMessage("\n@7 parent= " + lFilter.Parent);
+
+
+			// does this LayerFilter have a parent?
+			if (lFilter.Parent == null)
+			{
+				// no - remove the filter from the root collection
+				lfCollect.Remove(lFilter);
+			}
+			else
+			{
+				// yes - remove the filter from the parent's collection
+				lFilter.Parent.NestedFilters.Remove(lFilter);
+			}
+
+			// write the updated layer filter tree back to the database
+			db.LayerFilters = lfTree;
+
+			// update the layer palette to have the changes show up
+			refreshLayerManager();
+
+			// return success
+			return true;
+		}
+
+		/// <summary>
 		/// Delete one filter based on the name provided.  If the Filter
 		/// does not exist or cannot be deleted, return null
 		/// </summary>
@@ -483,39 +544,53 @@ namespace LayerFilterUtil
 		/// <param name="lfCollect"></param>
 		/// <param name="searchName"></param>
 		/// <returns></returns>
-		private ResultBuffer DeleteFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, string searchName)
+		private ResultBuffer DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, string searchName)
 		{
+			//ed.WriteMessage("\n@2");
 			// search for the LayerFilter
 			List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: searchName, allowDelete: true);
+
+			//ed.WriteMessage("\n@21 name = " + searchName);
+
 
 			// if the list of layer filters found is null, no filters to delete, return null
 			if (lFilters == null)
 			{
+				//ed.WriteMessage("\n@22");
 				return null;
 			}
 
-			// filter can be deleted
 
-			// remove from local copy of the collection
-			if (lFilters[0].Parent == null)
-			{
-				// remove from the root collection when
-				// parent is null
-				lfCollect.Remove(lFilters[0]);
-			}
-			else
-			{
-				// else remove from the parent collection
-				// when parent is not null
-				lFilters[0].Parent.NestedFilters.Remove(lFilters[0]);
-			}
+			DeleteFilter(lfTree, lfCollect,lFilters[0]);
+	
 
-			// write the updated layer filter tree back to the database
-			db.LayerFilters = lfTree;
 
-			// update the layer palette to 
-			// show the layer filter changes
-			refreshLayerManager();
+//			// filter can be deleted
+//
+//			//ed.WriteMessage(" @25");
+//			// remove from local copy of the collection
+//			if (lFilters[0].Parent == null)
+//			{
+//				// remove from the root collection when
+//				// parent is null
+//				lfCollect.Remove(lFilters[0]);
+//			}
+//			else
+//			{
+//				// else remove from the parent collection
+//				// when parent is not null
+//				lFilters[0].Parent.NestedFilters.Remove(lFilters[0]);
+//			}
+//
+//			// write the updated layer filter tree back to the database
+//			db.LayerFilters = lfTree;
+//
+//			// update the layer palette to 
+//			// show the layer filter changes
+//			refreshLayerManager();
+
+
+
 
 			return BuildResBuffer(lFilters);
 		}
@@ -531,13 +606,21 @@ namespace LayerFilterUtil
 		{
 			ResultBuffer resBuffer = new ResultBuffer();
 
+			//ed.WriteMessage("\n@10");
+
 			if (lFilters.Count == 0) { return resBuffer; }
+
+			//ed.WriteMessage("\n@11 count= " + lFilters.Count);
 
 			foreach (LayerFilter lFilter in lFilters)
 			{
-				DeleteFilter(lfTree, lfCollect, lFilter.Name);
+				//ed.WriteMessage("\n@12 name= " + lFilter.Name);
+				//DeleteOneFilter(lfTree, lfCollect, lFilter.Name);
+				DeleteFilter(lfTree, lfCollect, lFilter);
 			}
 
+
+			//ed.WriteMessage("@19\n");
 			// return the list of not deleted filters
 			return ListFilters(lfCollect);
 		}
@@ -548,17 +631,139 @@ namespace LayerFilterUtil
 		/// </summary>
 		private void DisplayUsage()
 		{
-			const string USAGEUSAGE = "(layerFilterUtil \"usage\")";
-			const string USAGELIST = "(layerFilterUtil \"list\")";
-			const string USAGEFIND = "(layerFilterUtil \"find\" FilterNameToFind)";
-			const string USAGEADD = "(layerFilterUtil \"add\" NewFilterList)" + "this is a test";
-			const string USAGEDEL = "(layerFilterUtil \"delete\" FilterNameToDelete or \"*\")";
+			ed.WriteMessage("\nUsage:");
+			ed.WriteMessage("\nDisplay Usage:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil) or");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"usage\")");
+			
+			ed.WriteMessage("\nList all of the layer filters:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"list\")");
+			
+			ed.WriteMessage("\nFind a layer filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"find\" \"FilterNameToFind\")");
+			
+			ed.WriteMessage("\nAdd a top level property filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Property\" nil \"Expression\")");
+			
+			ed.WriteMessage("\nAdd a property filter to an existing filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Property\" \"ExistingFilterName\" \"Expression\")");
+			
+			ed.WriteMessage("\nAdd a top level group filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" nil \"LayerName\" \"LayerName\")");
+			
+			ed.WriteMessage("\nAdd a group filter to an existing filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" \"ExistingFilterName\" \"LayerName\" \"LayerName\")");
+			
+			ed.WriteMessage("\nDelete a layer filter:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"delete\" \"FilterNameToDelete\")");
+	
+			ed.WriteMessage("\nDelete all allowable layer filters:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"delete\" \"*\")");
 
-			ed.WriteMessage("Usage:\n" + USAGEUSAGE +
-							" or\n" + USAGELIST + " or\n" + USAGEFIND +
-							" or\n" + USAGEADD + " or\n" + USAGEDEL + "\n");
+			ed.WriteMessage("\nThe case of names does not matter except that, when a");
+			ed.WriteMessage("\n\tfilter is added, the case of the name is used.");
+			ed.WriteMessage("\nReturns a list when sucessful or nil when unsucessful");
 		}
 
+		/// <summary>
+		/// Build the ResultBuffer based on a List of LayerFilters
+		/// </summary>
+		/// <param name="lFilters"></param>
+		/// <returns></returns>
+		private ResultBuffer BuildResBuffer(List<LayerFilter> lFilters)
+		{
+			ResultBuffer resBuffer = new ResultBuffer();
+
+			// if nothing in the filter list, retrun null
+			if (lFilters.Count <= 0)
+			{
+				return null;
+			}
+
+			// start the list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the item count
+			resBuffer.Add(
+				new TypedValue((int)LispDataType.Int16, lFilters.Count));
+
+			// begin the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add each list item
+			foreach (LayerFilter lFilter in lFilters)
+			{
+				AddFilterToResBuffer(lFilter, resBuffer);
+			}
+
+			// end the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			// end the whole list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			return resBuffer;
+		}
+
+		/// <summary>
+		/// Add a dotted pair to a ResultBuffer
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="dxfCode"></param>
+		/// <param name="Value"></param>
+		/// <param name="ResBuffer"></param>
+		private void AddDottedPairToResBuffer<T>(int dxfCode, T Value, ResultBuffer ResBuffer)
+		{
+			// start with a list begin
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the DXF code
+			ResBuffer.Add(new TypedValue((int)LispDataType.Int16, dxfCode));
+
+			// add the dotted pair value depending on the
+			// type of TypedValue
+			switch (Type.GetTypeCode(typeof(T)))
+			{
+				case TypeCode.String:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, Value));
+					break;
+				case TypeCode.Int16:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int16, Value));
+					break;
+				case TypeCode.Int32:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int32, Value));
+					break;
+				case TypeCode.Empty:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, ""));
+					break;
+			}
+
+			// terminate the dotted pair
+			ResBuffer.Add(new TypedValue((int)LispDataType.DottedPair));
+		}
+
+		/// <summary>
+		/// Add a dotted pair to a ResultBuffer (overload for boolean values)
+		/// </summary>
+		/// <param name="dxfCode"></param>
+		/// <param name="Value"></param>
+		/// <param name="ResBuffer"></param>
+		private void AddDottedPairToResBuffer(int dxfCode, bool Value, ResultBuffer ResBuffer)
+		{
+			// make a standard dotted pair by converting the boolean
+			// to a short
+			AddDottedPairToResBuffer(dxfCode, (short) (Value ? 1 : 0), ResBuffer);
+		}
+
+		/// <summary>
+		/// Adds a layer filter to the ResultBufffer as a List of Dotted Pairs
+		/// </summary>
+		/// <param name="lFilter">The LayerFilter to Add</param>
+		/// <param name="ResBuffer">The ResultBuffer in which to add the LayerFilter List</param>
 		private void AddFilterToResBuffer(LayerFilter lFilter, ResultBuffer ResBuffer)
 		{
 			// DXF codes for the dotted pairs
@@ -632,90 +837,17 @@ namespace LayerFilterUtil
 			ResBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
 		}
 
-		private ResultBuffer BuildResBuffer(List<LayerFilter> lFilters)
-		{
-			ResultBuffer resBuffer = new ResultBuffer();
-
-			// if nothing in the filter list, retrun null
-			if (lFilters.Count <= 0)
-			{
-				return null;
-			}
-
-			// start the list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add the item count
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.Int16, lFilters.Count));
-
-			// begin the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add each list item
-			foreach (LayerFilter lFilter in lFilters)
-			{
-				AddFilterToResBuffer(lFilter, resBuffer);
-			}
-
-			// end the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			// end the whole list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			return resBuffer;
-		}
-
-		private ResultBuffer BuildResBuffer(LayerFilter lFilter)
-		{
-			List<LayerFilter> lFilters = new List<LayerFilter>(1);
-			lFilters.Add(lFilter);
-
-			return BuildResBuffer(lFilters);
-		}
-
-		void AddDottedPairToResBuffer<T>(int dxfCode, T Value, ResultBuffer ResBuffer)
-		{
-			// start with a list begin
-			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add the DXF code
-			ResBuffer.Add(new TypedValue((int)LispDataType.Int16, dxfCode));
-
-			// add the dotted pair value depending on the
-			// type of TypedValue
-			switch (Type.GetTypeCode(typeof(T)))
-			{
-				case TypeCode.String:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Text, Value));
-					break;
-				case TypeCode.Int16:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Int16, Value));
-					break;
-				case TypeCode.Int32:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Int32, Value));
-					break;
-				case TypeCode.Empty:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Text, ""));
-					break;
-			}
-
-			// terminate the dotted pair
-			ResBuffer.Add(new TypedValue((int)LispDataType.DottedPair));
-		}
-
-		void AddDottedPairToResBuffer(int dxfCode, bool Value, ResultBuffer ResBuffer)
-		{
-			// make a standard dotted pair by converting the boolean
-			// to a short
-			AddDottedPairToResBuffer(dxfCode, (short) (Value ? 1 : 0), ResBuffer);
-		}
-
+		/// <summary>
+		/// Search for LayerFilters based on the criteria provided
+		/// </summary>
+		/// <param name="lfCollect"></param>
+		/// <param name="Name"></param>
+		/// <param name="Parent"></param>
+		/// <param name="allowDelete"></param>
+		/// <param name="isGroup"></param>
+		/// <param name="allowNested"></param>
+		/// <param name="nestCount"></param>
+		/// <returns></returns>
 		private List<LayerFilter> SearchFilters(LayerFilterCollection lfCollect, 
 			string Name = null, string Parent = null, 
 			bool? allowDelete = null, bool? isGroup = null, 
@@ -724,14 +856,26 @@ namespace LayerFilterUtil
 			// create the blank list (no elements - length == 0)
 			List<LayerFilter> lfList = new List<LayerFilter>();
 
-			if (lfCollect.Count == 0 || NestDepth > 100) { return lfList; }
+			if (lfCollect.Count == 0 || nestDepth > 100) { return lfList; }
 
 			// prevent from getting too deep
-			NestDepth++;
+			nestDepth++;
+
+
+			//ed.WriteMessage("\n@6");
+			//ed.WriteMessage("\n@6 - Name= " + Name);
+			//ed.WriteMessage("\n@6 - Parent= " + Parent);
+			//ed.WriteMessage("\n@6 - isGroup= " + isGroup);
+			//ed.WriteMessage("\n@6 - allowDelete= " + allowDelete);
+			//ed.WriteMessage("\n@6 - allowNested= " + allowNested);
+			//ed.WriteMessage("\n@6 - nestcount= " + nestCount);
+
 
 			foreach (LayerFilter lFilter in lfCollect)
 			{
-				if (validateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+				//ed.WriteMessage("\n@61 name= " + lFilter.Name);
+				if (ValidateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+					//ed.WriteMessage("\n@68");
 					lfList.Add(lFilter);
 				}
 
@@ -751,16 +895,33 @@ namespace LayerFilterUtil
 
 		}
 
+		/// <summary>
+		/// Search for one LayerFilter based on the criteria provided
+		/// </summary>
+		/// <param name="lfCollect"></param>
+		/// <param name="Name"></param>
+		/// <param name="Parent"></param>
+		/// <param name="allowDelete"></param>
+		/// <param name="isGroup"></param>
+		/// <param name="allowNested"></param>
+		/// <param name="nestCount"></param>
+		/// <returns></returns>
 		private List<LayerFilter> SearchOneFilter(LayerFilterCollection lfCollect,
 			string Name = null, string Parent = null,
 			bool? allowDelete = null, bool? isGroup = null,
 			bool? allowNested = null, string nestCount = null)
 		{
+
+			//ed.WriteMessage("\n@51 name= " + Name);
+			//ed.WriteMessage("\n@51 allowDelete= " + allowDelete);
+
 			// create the list of LayerFilters
-			List<LayerFilter> lfList = new List<LayerFilter>(SearchFilters(lfCollect, Name, Parent, allowDelete, isGroup, allowNested, nestCount));
+			List<LayerFilter> lFilters = new List<LayerFilter>(SearchFilters(lfCollect, Name, Parent, allowDelete, isGroup, allowNested, nestCount));
+
+			//ed.WriteMessage("\n@55 count= " + lFilters.Count);
 
 			// return LayerFilter if only 1 found, else return null
-			return (lfList.Count == 1 ? lfList : null);
+			return (lFilters.Count == 1 ? lFilters : null);
 		}
 
 		/// <summary>
@@ -778,21 +939,40 @@ namespace LayerFilterUtil
 		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
 		/// <returns></returns>
 
-		private bool validateFilter(LayerFilter lFilter, 
+		private bool ValidateFilter(LayerFilter lFilter, 
 			string Name = null, string Parent = null, 
 			bool? allowDelete = null, bool? isGroup = null, 
-			bool? allowNested = null, string nestCount = null) 
+			bool? allowNested = null, string nestCount = null)
 		{
+
+			//ed.WriteMessage("\n@3");
+			//ed.WriteMessage("\n@3 - Name= " + Name);
+			//ed.WriteMessage("\n@3 - Parent= " + Parent);
+			//ed.WriteMessage("\n@3 - isGroup= " + isGroup);
+			//ed.WriteMessage("\n@3 - allowDelete= " + allowDelete);
+			//ed.WriteMessage("\n@3 - allowNested= " + allowNested);
+			//ed.WriteMessage("\n@3 - nestcount= " + nestCount);
+
 			// make easy tests first
 			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
 
+			//ed.WriteMessage("\n@31");
+
 			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
 
-			if (allowDelete != null) {if (allowDelete == lFilter.AllowDelete) {return false; } }
+			//ed.WriteMessage("\n@32");
 
-			if (isGroup != null) { if (isGroup == lFilter.IsIdFilter) { return false; } }
+			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
 
-			if (allowNested != null) { if (allowNested == lFilter.AllowNested) { return false; } }
+			//ed.WriteMessage("\n@33");
+
+			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
+
+			//ed.WriteMessage("\n@34");
+
+			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
+
+			//ed.WriteMessage("\n@35");
 
 			// process nestCount
 			// this allows for a conditional + a number to be
@@ -845,6 +1025,7 @@ namespace LayerFilterUtil
 				}
 			}
 
+			//ed.WriteMessage("\n@39");
 			// get here, all tests passed
 			return true;
 		}
@@ -859,14 +1040,14 @@ namespace LayerFilterUtil
 			List<string> layerNames = new List<string>();
 
 			// if there are too few arguments (== no layers), return null
-			if (F_LAYERS > tvArgs.Length)
+			if (FILTER_LAYERS > tvArgs.Length)
 			{
 				return layerNames;
 			}
 
 
 			// store the list of layers to add into a sorted list
-			for (int i = F_LAYERS; i < tvArgs.Length; i++)
+			for (int i = FILTER_LAYERS; i < tvArgs.Length; i++)
 			{
 				layerNames.Add(((string)tvArgs[i].Value).ToLower());
 			}
@@ -923,51 +1104,6 @@ namespace LayerFilterUtil
 
 		}
 
-		/*/// <summary>
-		/// Scan through the the layer filter collection and find a filter<para />
-		/// that matches the name provided - exact match is required
-		/// </summary>
-		/// <param name="lfC">A Layer Filter Collection</param>
-		/// <param name="nameToFind">The name of the Layer Filter to find</param>
-		/// <returns></returns>
-		private LayerFilter FindOneFilter(LayerFilterCollection lfC, string nameToFind)
-		{
-			LayerFilter lFilterFound = null;
-			
-
-			if (lfC.Count == 0 || NestDepth > 100)
-			{
-				return null;
-			}
-
-			NestDepth++;
-
-			foreach (LayerFilter lFilter in lfC)
-			{
-
-				if (lFilter.Name == nameToFind)
-				{
-					lFilterFound = lFilter;
-					break;
-				}
-				else
-				{
-					if (lFilter.NestedFilters.Count != 0)
-					{
-						lFilterFound = FindOneFilter(lFilter.NestedFilters, nameToFind);
-						if (lFilterFound != null)
-						{
-							break;
-						}
-					}
-				}
-			}
-
-			NestDepth--;
-
-			return lFilterFound;
-		}*/
-
 		/// <summary>
 		/// Update the LayerManagerPalette so that the layer filter
 		/// changes get displayed 
@@ -985,6 +1121,7 @@ namespace LayerFilterUtil
 
 		}
 
+#if DEBUG
 		/// <summary>
 		/// List the information about the args passed to the command
 		/// </summary>
@@ -1048,6 +1185,7 @@ namespace LayerFilterUtil
 					return tv.ToString();
 
 			}
-		}
+		} 
+#endif
 	}
 }
