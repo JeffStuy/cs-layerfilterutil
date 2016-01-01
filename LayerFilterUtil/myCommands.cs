@@ -26,12 +26,6 @@ namespace LayerFilterUtil
 	// is implicitly per-document!
 	public class MyCommands
 	{
-		// message constants
-		const string USAGEUSAGE = "(layerFilterUtil \"usage\")";
-		const string USAGELIST = "(layerFilterUtil \"list\")";
-		const string USAGEFIND = "(layerFilterUtil \"find\" FilterNameToFind)";
-		const string USAGEADD = "(layerFilterUtil \"add\" NewFilterList)" + "this is a test";
-		const string USAGEDEL = "(layerFilterUtil \"delete\" FilterNameToDelete or \"*\")";
 
 		const int FUNCTION = 0;
 		const int F_NAME = 1;
@@ -102,7 +96,7 @@ namespace LayerFilterUtil
 					// validate the args buffer, 2nd level - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
-						return ListFilters(lfCollect);
+						return ListFilters2(lfCollect);
 					}
 
 					return null;
@@ -202,6 +196,162 @@ namespace LayerFilterUtil
 
 			return buildResBufMultipleItem(tvLists);;
 		}
+
+		private ResultBuffer ListFilters2(LayerFilterCollection lfCollect)
+		{
+			return BuildResBuffer(searchFilters(lfCollect));
+		}
+
+		private ResultBuffer BuildResBuffer(List<LayerFilter> lFilters)
+		{
+			ResultBuffer resBuffer = new ResultBuffer();
+
+			// if nothing in the filter list, retrun null
+			if (lFilters.Count <= 0)
+			{
+				return null;
+			}
+
+			// start the list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the item count
+			resBuffer.Add(
+				new TypedValue((int)LispDataType.Int16, lFilters.Count));
+
+			// begin the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add each list item
+			foreach (LayerFilter lFilter in lFilters)
+			{
+				AddFilterToResBuffer(lFilter, resBuffer);
+			}
+
+			// end the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			// end the whole list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			return resBuffer;
+		}
+
+		private void AddFilterToResBuffer(LayerFilter lFilter, ResultBuffer ResBuffer)
+		{
+			// DXF codes for the dotted pairs
+			const int FILTERNAMEDXF = 300;
+			const int FILTEREXPDXF = 301;
+			const int FILTERPARENTDXF = 302;
+			const int FILTERLAYERSDXF = 303;
+
+			const int FILTERDELFLGDXF = 290;
+			const int FILTERNESTFLGDXF = 291;
+			const int FILTERGRPFLGDXF = 292;
+
+			const int FILTERNESTCNTDXF = 90;
+
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// 
+			AddDottedPairToResBuffer(FILTERNAMEDXF, lFilter.Name, ResBuffer);
+
+			// add either the layer expression dotted pair
+			// of the list of layers dotted pair
+			if (!lFilter.IsIdFilter)
+			{
+				// add the filter expression to the result buffer
+				AddDottedPairToResBuffer(FILTEREXPDXF, lFilter.FilterExpression, ResBuffer);
+			}
+			else
+			{
+				// add the list of layers to the result buffer
+				StringBuilder sb = new StringBuilder();
+
+				using (Transaction tr = db.TransactionManager.StartTransaction())
+				{
+					// allocate for LayerTableRecord
+					LayerTableRecord ltRecord;
+
+					// iterate through all Layer Id's in the filter
+					foreach (ObjectId layId in ((LayerGroup)lFilter).LayerIds)
+					{
+						// based on the layer Id, the the LayerTableRecord
+						ltRecord = tr.GetObject(layId, OpenMode.ForRead) as LayerTableRecord;
+
+						// add the layer name to the list with a trailing '/'
+						sb.Append(ltRecord.Name + "/");
+					}
+				}
+
+				// if the list of found layers is empty, create a "blank" entry
+				if (sb.Length == 0) { sb = new StringBuilder("/", 1); }
+
+				// have the formatted list of layers, add the dotted pair
+				AddDottedPairToResBuffer(FILTERLAYERSDXF, sb.ToString(), ResBuffer);
+			}
+
+			// add dotted pair for the allow delete flag
+			AddDottedPairToResBuffer(FILTERDELFLGDXF, lFilter.AllowDelete, ResBuffer);
+
+			// add dotted pair for the parent name
+			AddDottedPairToResBuffer(FILTERPARENTDXF,
+				lFilter.Parent != null ? lFilter.Parent.Name : "",ResBuffer);
+
+			// add dotted pair for the is id filter flag
+			AddDottedPairToResBuffer(FILTERGRPFLGDXF, lFilter.IsIdFilter, ResBuffer);	// true = group filter; false = property filter
+
+			// add dotted pair for the allow nested flag
+			AddDottedPairToResBuffer(FILTERNESTFLGDXF, lFilter.AllowNested, ResBuffer);
+
+			// add dotted pair for the nested filter count
+			AddDottedPairToResBuffer(FILTERNESTCNTDXF, lFilter.NestedFilters.Count, ResBuffer);
+
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+		}
+
+
+		void AddDottedPairToResBuffer(int dxfCode, bool Value, ResultBuffer ResBuffer)
+		{
+			// make a standard dotted pair by converting the boolean
+			// to a short
+			AddDottedPairToResBuffer(dxfCode, (short) (Value ? 1 : 0), ResBuffer);
+		}
+
+		void AddDottedPairToResBuffer<T>(int dxfCode, T Value, ResultBuffer ResBuffer)
+		{
+			// start with a list begin
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the DXF code
+			ResBuffer.Add(new TypedValue((int)LispDataType.Int16, dxfCode));
+
+			// add the dotted pair value depending on the
+			// type of TypedValue
+			switch (Type.GetTypeCode(typeof(T)))
+			{
+				case TypeCode.String:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, Value));
+					break;
+				case TypeCode.Int16:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int16, Value));
+					break;
+				case TypeCode.Int32:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int32, Value));
+					break;
+				case TypeCode.Empty:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, ""));
+					break;
+			}
+
+			// terminate the dotted pair
+			ResBuffer.Add(new TypedValue((int)LispDataType.DottedPair));
+		}
+
 
 
 		/// <summary>
@@ -571,7 +721,7 @@ namespace LayerFilterUtil
 			}
 
 			// return the list of not deleted filters
-			return ListFilters(lfCollect);
+			return ListFilters2(lfCollect);
 		}
 
 
@@ -580,9 +730,136 @@ namespace LayerFilterUtil
 		/// </summary>
 		private void DisplayUsage()
 		{
+			const string USAGEUSAGE = "(layerFilterUtil \"usage\")";
+			const string USAGELIST = "(layerFilterUtil \"list\")";
+			const string USAGEFIND = "(layerFilterUtil \"find\" FilterNameToFind)";
+			const string USAGEADD = "(layerFilterUtil \"add\" NewFilterList)" + "this is a test";
+			const string USAGEDEL = "(layerFilterUtil \"delete\" FilterNameToDelete or \"*\")";
+
 			ed.WriteMessage("Usage:\n" + USAGEUSAGE +
 							" or\n" + USAGELIST + " or\n" + USAGEFIND +
 							" or\n" + USAGEADD + " or\n" + USAGEDEL + "\n");
+		}
+
+		private List<LayerFilter> searchFilters(LayerFilterCollection lfC, 
+			string Name = null, string Parent = null, 
+			bool? allowDelete = null, bool? isGroup = null, 
+			bool? allowNested = null, string nestCount = null)
+		{
+			// create the blank list
+			List<LayerFilter> lfList = new List<LayerFilter>();
+
+			if (lfC.Count == 0 || NestDepth > 100) { return lfList; }
+
+			// prevent from getting too deep
+			NestDepth++;
+
+			foreach (LayerFilter lFilter in lfC)
+			{
+				if (validateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+					lfList.Add(lFilter);
+				}
+
+				if (lFilter.NestedFilters.Count != 0)
+				{
+					List<LayerFilter> lfListReturn = 
+						searchFilters(lFilter.NestedFilters, Name, Parent, allowDelete, isGroup, allowNested, nestCount);
+
+					if (lfListReturn != null && lfListReturn.Count != 0)
+					{
+						lfList.AddRange(lfListReturn);
+					}
+				}
+			}
+
+			return lfList;
+
+		}
+
+		/// <summary>
+		/// Based on the criteria provided, determine if the LayerFilter matches
+		/// all criteria fields can be null - a null criteria indicates to not
+		/// check that criteria item
+		/// </summary>
+		/// <param name="lFilter">LayerFilter to check</param>
+		/// <param name="Name">Name criteria</param>
+		/// <param name="Parent">Parent criteria</param>
+		/// <param name="allowDelete">allowDelete flag criteria</param>
+		/// <param name="isGroup">is group filter flag criteria</param>
+		/// <param name="allowNested">allowNested flag criteria</param>
+		/// <param name="nestCount">nestCount (as a string) criteria - 
+		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
+		/// <returns></returns>
+
+		private bool validateFilter(LayerFilter lFilter, 
+			string Name = null, string Parent = null, 
+			bool? allowDelete = null, bool? isGroup = null, 
+			bool? allowNested = null, string nestCount = null) 
+		{
+			// make easy tests first
+			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
+
+			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
+
+			if (allowDelete != null) {if (allowDelete == lFilter.AllowDelete) {return false; } }
+
+			if (isGroup != null) { if (isGroup == lFilter.IsIdFilter) { return false; } }
+
+			if (allowNested != null) { if (allowNested == lFilter.AllowNested) { return false; } }
+
+			// process nestCount
+			// this allows for a conditional + a number to be
+			// specified to determine a match
+			if (nestCount != null && nestCount.Length > 1)
+			{
+				// setup for the nestCount check
+
+				Match m = Regex.Match(nestCount,@"^(=|==|<=|>=|!=|<|>)\s*(\d+)");
+
+				int nestCountValue;
+
+				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
+				{
+					bool nestCountResult = false;
+
+					switch (m.Groups[1].Value)
+					{
+						case "=":
+						case "==":
+							nestCountResult = lFilter.NestedFilters.Count == nestCountValue;
+							break;
+						case "<":
+							nestCountResult = lFilter.NestedFilters.Count < nestCountValue;
+							break;
+						case "<=":
+							nestCountResult = lFilter.NestedFilters.Count <= nestCountValue;
+							break;
+						case ">":
+							nestCountResult = lFilter.NestedFilters.Count > nestCountValue;
+							break;
+						case ">=":
+							nestCountResult = lFilter.NestedFilters.Count >= nestCountValue;
+							break;
+						case "!=":
+							nestCountResult = lFilter.NestedFilters.Count != nestCountValue;
+							break;
+						default:
+							nestCountResult = false;
+							break;
+					}
+
+					if (!nestCountResult) { return false; }
+				}
+				else
+				{
+					// regex match failed or int.TryParse failed
+					// cannot proceed - return false
+					return false;
+				}
+			}
+
+			// get here, all tests passed
+			return true;
 		}
 
 		/// <summary>
@@ -739,130 +1016,6 @@ namespace LayerFilterUtil
 		/**
 		 * Find all layer filters that meet the criteria provided
 		 */
-		private List<LayerFilter> searchFilters(LayerFilterCollection lfC, 
-			string Name = null, string Parent = null, 
-			bool? allowDelete = null, bool? isGroup = null, 
-			bool? allowNested = null, string nestCount = null)
-		{
-			// create the blank list
-			List<LayerFilter> lfList = new List<LayerFilter>();
-
-			if (lfC.Count == 0 || NestDepth > 100) { return lfList; }
-
-			// prevent from getting too deep
-			NestDepth++;
-
-			foreach (LayerFilter lFilter in lfC)
-			{
-				if (validateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
-					lfList.Add(lFilter);
-				}
-
-				if (lFilter.NestedFilters.Count != 0)
-				{
-					List<LayerFilter> lfListReturn = 
-						searchFilters(lFilter.NestedFilters, Name, Parent, allowDelete, isGroup, allowNested, nestCount);
-
-					if (lfListReturn != null && lfListReturn.Count != 0)
-					{
-						lfList.AddRange(lfListReturn);
-					}
-				}
-			}
-
-			return lfList;
-
-		}
-
-		/// <summary>
-		/// Based on the criteria provided, determine if the LayerFilter matches
-		/// all criteria fields can be null - a null criteria indicates to not
-		/// check that criteria item
-		/// </summary>
-		/// <param name="lFilter">LayerFilter to check</param>
-		/// <param name="Name">Name criteria</param>
-		/// <param name="Parent">Parent criteria</param>
-		/// <param name="allowDelete">allowDelete flag criteria</param>
-		/// <param name="isGroup">is group filter flag criteria</param>
-		/// <param name="allowNested">allowNested flag criteria</param>
-		/// <param name="nestCount">nestCount (as a string) criteria - 
-		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
-		/// <returns></returns>
-
-		private bool validateFilter(LayerFilter lFilter, 
-			string Name = null, string Parent = null, 
-			bool? allowDelete = null, bool? isGroup = null, 
-			bool? allowNested = null, string nestCount = null) 
-		{
-			// make easy tests first
-			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
-
-			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
-
-			if (allowDelete != null) {if (allowDelete == lFilter.AllowDelete) {return false; } }
-
-			if (isGroup != null) { if (isGroup == lFilter.IsIdFilter) { return false; } }
-
-			if (allowNested != null) { if (allowNested == lFilter.AllowNested) { return false; } }
-
-			// process nestCount
-			// this allows for a conditional + a number to be
-			// specified to determine a match
-			if (nestCount != null && nestCount.Length > 1)
-			{
-				// setup for the nestCount check
-
-				Match m = Regex.Match(nestCount,@"^(=|==|<=|>=|!=|<|>)\s*(\d+)");
-
-				int nestCountValue;
-
-				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
-				{
-					bool nestCountResult = false;
-
-					switch (m.Groups[1].Value)
-					{
-						case "=":
-						case "==":
-							nestCountResult = lFilter.NestedFilters.Count == nestCountValue;
-							break;
-						case "<":
-							nestCountResult = lFilter.NestedFilters.Count < nestCountValue;
-							break;
-						case "<=":
-							nestCountResult = lFilter.NestedFilters.Count <= nestCountValue;
-							break;
-						case ">":
-							nestCountResult = lFilter.NestedFilters.Count > nestCountValue;
-							break;
-						case ">=":
-							nestCountResult = lFilter.NestedFilters.Count >= nestCountValue;
-							break;
-						case "!=":
-							nestCountResult = lFilter.NestedFilters.Count != nestCountValue;
-							break;
-						default:
-							nestCountResult = false;
-							break;
-					}
-
-					if (!nestCountResult) { return false; }
-				}
-				else
-				{
-					// regex match failed or int.TryParse failed
-					// cannot proceed - return false
-					return false;
-				}
-			}
-
-			// get here, all tests passed
-			return true;
-		}
-
-
-
-
 		private void findFilters(LayerFilterCollection lfC, List<List<TypedValue>> tvLists)
 		{
 			// if nothing in the collection, return null
@@ -977,7 +1130,7 @@ namespace LayerFilterUtil
 					}
 				}
 
-				if (sb.Length == 0) { sb = new StringBuilder("\"\"", 1); }
+				if (sb.Length == 0) { sb = new StringBuilder("/", 1); }
 
 				makeDottedPair(tvList, FILTERLAYERSDXF, sb.ToString());
 			}
