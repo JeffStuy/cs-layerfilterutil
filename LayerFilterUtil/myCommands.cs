@@ -96,7 +96,7 @@ namespace LayerFilterUtil
 					// validate the args buffer, 2nd level - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
-						return ListFilters2(lfCollect);
+						return ListFilters(lfCollect);
 					}
 
 					return null;
@@ -177,181 +177,10 @@ namespace LayerFilterUtil
 			return resbufOut;
 		}
 
-		/// <summary>
-		/// Create a ResultBuffer with all of the filters
-		/// </summary>
-		/// <param name="lfCollect"></param>
-		/// <returns></returns>
 		private ResultBuffer ListFilters(LayerFilterCollection lfCollect)
-		{
-			List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
-
-			findFilters(lfCollect, tvLists);
-
-			if (tvLists.Count == 0)
-			{
-				// just in case but this should never happen
-				return null;
-			}
-
-			return buildResBufMultipleItem(tvLists);;
-		}
-
-		private ResultBuffer ListFilters2(LayerFilterCollection lfCollect)
 		{
 			return BuildResBuffer(searchFilters(lfCollect));
 		}
-
-		private ResultBuffer BuildResBuffer(List<LayerFilter> lFilters)
-		{
-			ResultBuffer resBuffer = new ResultBuffer();
-
-			// if nothing in the filter list, retrun null
-			if (lFilters.Count <= 0)
-			{
-				return null;
-			}
-
-			// start the list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add the item count
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.Int16, lFilters.Count));
-
-			// begin the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add each list item
-			foreach (LayerFilter lFilter in lFilters)
-			{
-				AddFilterToResBuffer(lFilter, resBuffer);
-			}
-
-			// end the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			// end the whole list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			return resBuffer;
-		}
-
-		private void AddFilterToResBuffer(LayerFilter lFilter, ResultBuffer ResBuffer)
-		{
-			// DXF codes for the dotted pairs
-			const int FILTERNAMEDXF = 300;
-			const int FILTEREXPDXF = 301;
-			const int FILTERPARENTDXF = 302;
-			const int FILTERLAYERSDXF = 303;
-
-			const int FILTERDELFLGDXF = 290;
-			const int FILTERNESTFLGDXF = 291;
-			const int FILTERGRPFLGDXF = 292;
-
-			const int FILTERNESTCNTDXF = 90;
-
-			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// 
-			AddDottedPairToResBuffer(FILTERNAMEDXF, lFilter.Name, ResBuffer);
-
-			// add either the layer expression dotted pair
-			// of the list of layers dotted pair
-			if (!lFilter.IsIdFilter)
-			{
-				// add the filter expression to the result buffer
-				AddDottedPairToResBuffer(FILTEREXPDXF, lFilter.FilterExpression, ResBuffer);
-			}
-			else
-			{
-				// add the list of layers to the result buffer
-				StringBuilder sb = new StringBuilder();
-
-				using (Transaction tr = db.TransactionManager.StartTransaction())
-				{
-					// allocate for LayerTableRecord
-					LayerTableRecord ltRecord;
-
-					// iterate through all Layer Id's in the filter
-					foreach (ObjectId layId in ((LayerGroup)lFilter).LayerIds)
-					{
-						// based on the layer Id, the the LayerTableRecord
-						ltRecord = tr.GetObject(layId, OpenMode.ForRead) as LayerTableRecord;
-
-						// add the layer name to the list with a trailing '/'
-						sb.Append(ltRecord.Name + "/");
-					}
-				}
-
-				// if the list of found layers is empty, create a "blank" entry
-				if (sb.Length == 0) { sb = new StringBuilder("/", 1); }
-
-				// have the formatted list of layers, add the dotted pair
-				AddDottedPairToResBuffer(FILTERLAYERSDXF, sb.ToString(), ResBuffer);
-			}
-
-			// add dotted pair for the allow delete flag
-			AddDottedPairToResBuffer(FILTERDELFLGDXF, lFilter.AllowDelete, ResBuffer);
-
-			// add dotted pair for the parent name
-			AddDottedPairToResBuffer(FILTERPARENTDXF,
-				lFilter.Parent != null ? lFilter.Parent.Name : "",ResBuffer);
-
-			// add dotted pair for the is id filter flag
-			AddDottedPairToResBuffer(FILTERGRPFLGDXF, lFilter.IsIdFilter, ResBuffer);	// true = group filter; false = property filter
-
-			// add dotted pair for the allow nested flag
-			AddDottedPairToResBuffer(FILTERNESTFLGDXF, lFilter.AllowNested, ResBuffer);
-
-			// add dotted pair for the nested filter count
-			AddDottedPairToResBuffer(FILTERNESTCNTDXF, lFilter.NestedFilters.Count, ResBuffer);
-
-			ResBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-		}
-
-
-		void AddDottedPairToResBuffer(int dxfCode, bool Value, ResultBuffer ResBuffer)
-		{
-			// make a standard dotted pair by converting the boolean
-			// to a short
-			AddDottedPairToResBuffer(dxfCode, (short) (Value ? 1 : 0), ResBuffer);
-		}
-
-		void AddDottedPairToResBuffer<T>(int dxfCode, T Value, ResultBuffer ResBuffer)
-		{
-			// start with a list begin
-			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add the DXF code
-			ResBuffer.Add(new TypedValue((int)LispDataType.Int16, dxfCode));
-
-			// add the dotted pair value depending on the
-			// type of TypedValue
-			switch (Type.GetTypeCode(typeof(T)))
-			{
-				case TypeCode.String:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Text, Value));
-					break;
-				case TypeCode.Int16:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Int16, Value));
-					break;
-				case TypeCode.Int32:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Int32, Value));
-					break;
-				case TypeCode.Empty:
-					ResBuffer.Add(
-						new TypedValue((int)LispDataType.Text, ""));
-					break;
-			}
-
-			// terminate the dotted pair
-			ResBuffer.Add(new TypedValue((int)LispDataType.DottedPair));
-		}
-
 
 
 		/// <summary>
@@ -363,18 +192,14 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer FindFilter(LayerFilterCollection lfCollect, string searchName)
 		{
-			LayerFilter lFilter = findOneFilter(lfCollect, searchName);
+			List<LayerFilter> lFilter = searchFilters(lfCollect, Name: searchName);
 
-			if (lFilter == null)
+			if (lFilter.Count <= 0)
 			{
 				return null;
 			}
 
-			List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
-
-			tvLists.Add(convertFilterToList(lFilter));
-
-			return buildResBufMultipleItem(tvLists);
+			return BuildResBuffer(lFilter);
 		}
 
 		/// <summary>
@@ -693,13 +518,18 @@ namespace LayerFilterUtil
 			// show the layer filter changes
 			refreshLayerManager();
 
-			List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
+			//List<List<TypedValue>> tvLists = new List<List<TypedValue>>();
 
 			// format the deleted filter into a list	
-			tvLists.Add(convertFilterToList(lFilter));
+			//tvLists.Add(convertFilterToList(lFilter));
 
 			// build & return the result buffer
-			return buildResBufMultipleItem(tvLists);
+			//return buildResBufMultipleItem(tvLists);
+
+
+			return BuildResBuffer(lFilter);
+
+
 		}
 
 		/// <summary>
@@ -721,7 +551,7 @@ namespace LayerFilterUtil
 			}
 
 			// return the list of not deleted filters
-			return ListFilters2(lfCollect);
+			return ListFilters(lfCollect);
 		}
 
 
@@ -739,6 +569,163 @@ namespace LayerFilterUtil
 			ed.WriteMessage("Usage:\n" + USAGEUSAGE +
 							" or\n" + USAGELIST + " or\n" + USAGEFIND +
 							" or\n" + USAGEADD + " or\n" + USAGEDEL + "\n");
+		}
+
+		private void AddFilterToResBuffer(LayerFilter lFilter, ResultBuffer ResBuffer)
+		{
+			// DXF codes for the dotted pairs
+			const int FILTERNAMEDXF = 300;
+			const int FILTEREXPDXF = 301;
+			const int FILTERPARENTDXF = 302;
+			const int FILTERLAYERSDXF = 303;
+
+			const int FILTERDELFLGDXF = 290;
+			const int FILTERNESTFLGDXF = 291;
+			const int FILTERGRPFLGDXF = 292;
+
+			const int FILTERNESTCNTDXF = 90;
+
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// 
+			AddDottedPairToResBuffer(FILTERNAMEDXF, lFilter.Name, ResBuffer);
+
+			// add either the layer expression dotted pair
+			// of the list of layers dotted pair
+			if (!lFilter.IsIdFilter)
+			{
+				// add the filter expression to the result buffer
+				AddDottedPairToResBuffer(FILTEREXPDXF, lFilter.FilterExpression, ResBuffer);
+			}
+			else
+			{
+				// add the list of layers to the result buffer
+				StringBuilder sb = new StringBuilder();
+
+				using (Transaction tr = db.TransactionManager.StartTransaction())
+				{
+					// allocate for LayerTableRecord
+					LayerTableRecord ltRecord;
+
+					// iterate through all Layer Id's in the filter
+					foreach (ObjectId layId in ((LayerGroup)lFilter).LayerIds)
+					{
+						// based on the layer Id, the the LayerTableRecord
+						ltRecord = tr.GetObject(layId, OpenMode.ForRead) as LayerTableRecord;
+
+						// add the layer name to the list with a trailing '/'
+						sb.Append(ltRecord.Name + "/");
+					}
+				}
+
+				// if the list of found layers is empty, create a "blank" entry
+				if (sb.Length == 0) { sb = new StringBuilder("/", 1); }
+
+				// have the formatted list of layers, add the dotted pair
+				AddDottedPairToResBuffer(FILTERLAYERSDXF, sb.ToString(), ResBuffer);
+			}
+
+			// add dotted pair for the allow delete flag
+			AddDottedPairToResBuffer(FILTERDELFLGDXF, lFilter.AllowDelete, ResBuffer);
+
+			// add dotted pair for the parent name
+			AddDottedPairToResBuffer(FILTERPARENTDXF,
+				lFilter.Parent != null ? lFilter.Parent.Name : "",ResBuffer);
+
+			// add dotted pair for the is id filter flag
+			AddDottedPairToResBuffer(FILTERGRPFLGDXF, lFilter.IsIdFilter, ResBuffer);	// true = group filter; false = property filter
+
+			// add dotted pair for the allow nested flag
+			AddDottedPairToResBuffer(FILTERNESTFLGDXF, lFilter.AllowNested, ResBuffer);
+
+			// add dotted pair for the nested filter count
+			AddDottedPairToResBuffer(FILTERNESTCNTDXF, lFilter.NestedFilters.Count, ResBuffer);
+
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+		}
+
+		private ResultBuffer BuildResBuffer(List<LayerFilter> lFilters)
+		{
+			ResultBuffer resBuffer = new ResultBuffer();
+
+			// if nothing in the filter list, retrun null
+			if (lFilters.Count <= 0)
+			{
+				return null;
+			}
+
+			// start the list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the item count
+			resBuffer.Add(
+				new TypedValue((int)LispDataType.Int16, lFilters.Count));
+
+			// begin the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add each list item
+			foreach (LayerFilter lFilter in lFilters)
+			{
+				AddFilterToResBuffer(lFilter, resBuffer);
+			}
+
+			// end the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			// end the whole list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			return resBuffer;
+		}
+
+		private ResultBuffer BuildResBuffer(LayerFilter lFilter)
+		{
+			List<LayerFilter> lFilters = new List<LayerFilter>(1);
+			lFilters.Add(lFilter);
+
+			return BuildResBuffer(lFilters);
+		}
+
+		void AddDottedPairToResBuffer<T>(int dxfCode, T Value, ResultBuffer ResBuffer)
+		{
+			// start with a list begin
+			ResBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add the DXF code
+			ResBuffer.Add(new TypedValue((int)LispDataType.Int16, dxfCode));
+
+			// add the dotted pair value depending on the
+			// type of TypedValue
+			switch (Type.GetTypeCode(typeof(T)))
+			{
+				case TypeCode.String:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, Value));
+					break;
+				case TypeCode.Int16:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int16, Value));
+					break;
+				case TypeCode.Int32:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Int32, Value));
+					break;
+				case TypeCode.Empty:
+					ResBuffer.Add(
+						new TypedValue((int)LispDataType.Text, ""));
+					break;
+			}
+
+			// terminate the dotted pair
+			ResBuffer.Add(new TypedValue((int)LispDataType.DottedPair));
+		}
+
+		void AddDottedPairToResBuffer(int dxfCode, bool Value, ResultBuffer ResBuffer)
+		{
+			// make a standard dotted pair by converting the boolean
+			// to a short
+			AddDottedPairToResBuffer(dxfCode, (short) (Value ? 1 : 0), ResBuffer);
 		}
 
 		private List<LayerFilter> searchFilters(LayerFilterCollection lfC, 
@@ -936,86 +923,7 @@ namespace LayerFilterUtil
 
 		}
 
-
-		// update the layer palette to show the 
-		// layer filter changes
-		private void refreshLayerManager()
-		{
-			object manager = Application.GetSystemVariable("LAYERMANAGERSTATE");
-
-			// force a refresh of the layermanager palette to have
-			// the changes show up
-			if (manager.ToString().Contains("1"))
-			{
-				doc.SendStringToExecute("layerpalette ", true, false, false);
-			}
-
-		}
-
-
-		// add a group layer filter to a collection
-
-
-		// add one layer filter to an existing parent layer filter (nested filter)
-
-		private void buildErrorMessage(ResultBuffer resBuffer, string Message)
-		{
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.ListBegin));
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.Int16, (short)-1));
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.Text, "Invalid - Usage: " + Message));
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.ListEnd));
-		}
-
-
-		private ResultBuffer buildResBufMultipleItem(List<List<TypedValue>> tvLists)
-		{
-			ResultBuffer resBuffer = new ResultBuffer();
-
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			// add a dotted pari that represents the item count
-			resBuffer.Add(
-				new TypedValue((int)LispDataType.Int16, tvLists.Count));
-
-			// begin the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			foreach (List<TypedValue> tvList in tvLists)
-			{
-				buildResBufSingleItem(resBuffer, tvList);
-			}
-
-
-			// end the list of lists
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			// end the whole list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-
-			return resBuffer;
-		}
-
-		private void buildResBufSingleItem(ResultBuffer resBuffer, List<TypedValue> tvList)
-		{
-			// begin adding a new inner list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
-
-			foreach (TypedValue tVal in tvList)
-			{
-				resBuffer.Add(tVal);
-			}
-
-			// end the inner list
-			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
-		}
-
-		/**
-		 * Find all layer filters that meet the criteria provided
-		 */
+		/*
 		private void findFilters(LayerFilterCollection lfC, List<List<TypedValue>> tvLists)
 		{
 			// if nothing in the collection, return null
@@ -1038,6 +946,8 @@ namespace LayerFilterUtil
 			}
 			NestDepth--;
 		}
+		*/
+		 
 		/// <summary>
 		/// Scan through the the layer filter collection and find a filter<para />
 		/// that matches the name provided - exact match is required
@@ -1082,6 +992,59 @@ namespace LayerFilterUtil
 
 			return lFilterFound;
 		}
+		
+
+
+		/*
+		// update the layer palette to show the 
+		// layer filter changes
+
+		private ResultBuffer buildResBufMultipleItem(List<List<TypedValue>> tvLists)
+		{
+			ResultBuffer resBuffer = new ResultBuffer();
+
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			// add a dotted pari that represents the item count
+			resBuffer.Add(
+				new TypedValue((int)LispDataType.Int16, tvLists.Count));
+
+			// begin the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			foreach (List<TypedValue> tvList in tvLists)
+			{
+				buildResBufSingleItem(resBuffer, tvList);
+			}
+
+
+			// end the list of lists
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			// end the whole list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+
+			return resBuffer;
+		}
+		
+
+		private void buildResBufSingleItem(ResultBuffer resBuffer, List<TypedValue> tvList)
+		{
+			// begin adding a new inner list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListBegin));
+
+			foreach (TypedValue tVal in tvList)
+			{
+				resBuffer.Add(tVal);
+			}
+
+			// end the inner list
+			resBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
+		}
+
+		/**
+		 * Find all layer filters that meet the criteria provided
+		 //
 
 		/// <summary>
 		/// Convert the information of a layer filter and format
@@ -1202,7 +1165,20 @@ namespace LayerFilterUtil
 			// terminate the dotted pair
 			tvList.Add(new TypedValue((int)LispDataType.DottedPair));
 		}
+		*/
 
+		private void refreshLayerManager()
+		{
+			object manager = Application.GetSystemVariable("LAYERMANAGERSTATE");
+
+			// force a refresh of the layermanager palette to have
+			// the changes show up
+			if (manager.ToString().Contains("1"))
+			{
+				doc.SendStringToExecute("layerpalette ", true, false, false);
+			}
+
+		}
 
 		/// <summary>
 		/// List the information about the args passed to the command
