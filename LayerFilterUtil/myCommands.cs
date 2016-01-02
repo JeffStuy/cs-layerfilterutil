@@ -520,6 +520,7 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private bool DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, LayerFilter lFilter)
 		{
+			
 			// if the LayerFilter provided is null, return false
 			if (lFilter == null)
 			{
