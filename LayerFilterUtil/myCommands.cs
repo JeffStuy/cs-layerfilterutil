@@ -107,7 +107,7 @@ namespace LayerFilterUtil
 					if (tvArgs.Length == 2 && tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
 					{
 						// search for the layer filter 
-						return FindFilter(lfCollect, ((string)tvArgs[1].Value));
+						return FindFilter(lfCollect, ((string)tvArgs[FILTER_NAME].Value));
 					}
 
 					return null;
@@ -140,36 +140,40 @@ namespace LayerFilterUtil
 					// except those filters marked as "cannot delete"
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 
-					if ((string)tvArgs[FILTER_NAME].Value != "*")
+					if (tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
 					{
-						//ed.WriteMessage("\n@1 name= " + (string)tvArgs[FILTER_NAME].Value);
-
-						if (tvArgs.Length == 2 && tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
-						{
-							//ed.WriteMessage("\n@1.1"); 
-							return DeleteOneFilter(lfTree, lfCollect, (string)tvArgs[FILTER_NAME].Value);
-
-							// this is a test
-						}
-					}
-					else
-					{
-						// special case, name to delete is *
-						// delete all filters that are not marked as cannot delete
-
+						string FilterName = (string)tvArgs[FILTER_NAME].Value;
 						nestDepth = 0;
 
-
-						//ed.WriteMessage("\n@1");
-
-						List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
-
-						if (lfList != null && lfList.Count > 0)
+						if (FilterName != "*")
 						{
-							//ed.WriteMessage("\n@100");
-							return DeleteFilters(lfTree, lfCollect, lfList);
-						}
+							// delete one named filter
+							//ed.WriteMessage("\n@1 name= " + (string)tvArgs[FILTER_NAME].Value);
 
+							if (tvArgs.Length == 2)
+							{
+								List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: FilterName, allowDelete: true);
+
+								//ed.WriteMessage("\n@1.1"); 
+								return DeleteOneFilter(lfTree, lfCollect, lFilters);
+							}
+						}
+						else
+						{
+							// special case, name to delete is *
+							// delete all filters that are not marked as cannot delete
+
+							//ed.WriteMessage("\n@1");
+
+							List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
+
+							if (lfList != null && lfList.Count > 0)
+							{
+								//ed.WriteMessage("\n@100");
+								return DeleteListOfFilters(lfTree, lfCollect, lfList);
+							}
+							
+						}
 					}
 
 		
@@ -530,9 +534,6 @@ namespace LayerFilterUtil
 			// write the updated layer filter tree back to the database
 			db.LayerFilters = lfTree;
 
-			// update the layer palette to have the changes show up
-			refreshLayerManager();
-
 			// return success
 			return true;
 		}
@@ -545,14 +546,8 @@ namespace LayerFilterUtil
 		/// <param name="lfCollect"></param>
 		/// <param name="searchName"></param>
 		/// <returns></returns>
-		private ResultBuffer DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, string searchName)
+		private ResultBuffer DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, List<LayerFilter> lFilters )
 		{
-			//ed.WriteMessage("\n@2");
-			// search for the LayerFilter
-			List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: searchName, allowDelete: true);
-
-			//ed.WriteMessage("\n@21 name = " + searchName);
-
 
 			// if the list of layer filters found is null, no filters to delete, return null
 			if (lFilters == null)
@@ -561,37 +556,11 @@ namespace LayerFilterUtil
 				return null;
 			}
 
-
-			DeleteFilter(lfTree, lfCollect,lFilters[0]);
-	
-
-
-//			// filter can be deleted
-//
-//			//ed.WriteMessage(" @25");
-//			// remove from local copy of the collection
-//			if (lFilters[0].Parent == null)
-//			{
-//				// remove from the root collection when
-//				// parent is null
-//				lfCollect.Remove(lFilters[0]);
-//			}
-//			else
-//			{
-//				// else remove from the parent collection
-//				// when parent is not null
-//				lFilters[0].Parent.NestedFilters.Remove(lFilters[0]);
-//			}
-//
-//			// write the updated layer filter tree back to the database
-//			db.LayerFilters = lfTree;
-//
-//			// update the layer palette to 
-//			// show the layer filter changes
-//			refreshLayerManager();
-
-
-
+			if (DeleteFilter(lfTree, lfCollect, lFilters[0]))
+			{
+				// update the layer palette to have the changes show up
+				refreshLayerManager();
+			}
 
 			return BuildResBuffer(lFilters);
 		}
@@ -603,7 +572,7 @@ namespace LayerFilterUtil
 		/// <param name="lfCollect"></param>
 		/// <param name="lFilters"></param>
 		/// <returns></returns>
-		private ResultBuffer DeleteFilters(LayerFilterTree lfTree, LayerFilterCollection lfCollect, List<LayerFilter> lFilters)
+		private ResultBuffer DeleteListOfFilters(LayerFilterTree lfTree, LayerFilterCollection lfCollect, List<LayerFilter> lFilters)
 		{
 			ResultBuffer resBuffer = new ResultBuffer();
 
