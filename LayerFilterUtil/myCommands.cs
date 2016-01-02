@@ -85,7 +85,6 @@ namespace LayerFilterUtil
 				return null; ;
 			}
 
-
 			// access to the collection of layer filters
 			LayerFilterTree lfTree = db.LayerFilters;
 			LayerFilterCollection lfCollect = lfTree.Root.NestedFilters;
@@ -140,44 +139,8 @@ namespace LayerFilterUtil
 					// except those filters marked as "cannot delete"
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 
-					if (tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
-					{
-						string FilterName = (string)tvArgs[FILTER_NAME].Value;
-						nestDepth = 0;
-
-						if (FilterName != "*")
-						{
-							// delete one named filter
-							//ed.WriteMessage("\n@1 name= " + (string)tvArgs[FILTER_NAME].Value);
-
-							if (tvArgs.Length == 2)
-							{
-								List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: FilterName, allowDelete: true);
-
-								//ed.WriteMessage("\n@1.1"); 
-								return DeleteOneFilter(lfTree, lfCollect, lFilters);
-							}
-						}
-						else
-						{
-							// special case, name to delete is *
-							// delete all filters that are not marked as cannot delete
-
-							//ed.WriteMessage("\n@1");
-
-							List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
-
-							if (lfList != null && lfList.Count > 0)
-							{
-								//ed.WriteMessage("\n@100");
-								return DeleteListOfFilters(lfTree, lfCollect, lfList);
-							}
-							
-						}
-					}
-
-		
-					resbufOut = null;
+					return DeleteFilter(lfTree, lfCollect, tvArgs);
+					
 					break;
 				case "usage":
 					DisplayUsage();
@@ -500,6 +463,54 @@ namespace LayerFilterUtil
 			return true;
 		}
 
+
+
+		/// <summary>
+		/// Method to delete filters - either one or all
+		/// </summary>
+		/// <param name="lfTree"></param>
+		/// <param name="lfCollect"></param>
+		/// <param name="tvArgs"></param>
+		/// <returns></returns>
+		private ResultBuffer DeleteFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, TypedValue[] tvArgs)
+		{
+			if (tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
+			{
+				string FilterName = (string)tvArgs[FILTER_NAME].Value;
+				nestDepth = 0;
+
+				if (FilterName != "*")
+				{
+					// delete one named filter
+					if (tvArgs.Length == 2)
+					{
+						// create a list that should only be for the one filter based
+						// on the name and that is may be deleted
+						List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: FilterName, allowDelete: true);
+
+						if (lFilters.Count == 1)
+						{
+							return DeleteListOfFilters(lfTree, lfCollect, lFilters);
+						}
+					}
+				}
+				else
+				{
+					// special case, name to delete is *
+					// delete all filters that are not marked as cannot delete
+					List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
+
+					if (lfList != null && lfList.Count > 0)
+					{
+						//ed.WriteMessage("\n@100");
+						return DeleteListOfFilters(lfTree, lfCollect, lfList);
+					}
+
+				}
+			}
+			return null;
+		}
+
 		/// <summary>
 		/// Delete the layer filter provided
 		/// </summary>
@@ -507,17 +518,13 @@ namespace LayerFilterUtil
 		/// <param name="lfCollect"></param>
 		/// <param name="lFilter"></param>
 		/// <returns></returns>
-		private bool DeleteFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, LayerFilter lFilter)
+		private bool DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, LayerFilter lFilter)
 		{
 			// if the LayerFilter provided is null, return false
 			if (lFilter == null)
 			{
 				return false;
 			}
-
-			//ed.WriteMessage("\n@7 name= " + lFilter.Name);
-			//ed.WriteMessage("\n@7 parent= " + lFilter.Parent);
-
 
 			// does this LayerFilter have a parent?
 			if (lFilter.Parent == null)
@@ -539,33 +546,6 @@ namespace LayerFilterUtil
 		}
 
 		/// <summary>
-		/// Delete one filter based on the name provided.  If the Filter
-		/// does not exist or cannot be deleted, return null
-		/// </summary>
-		/// <param name="lfTree"></param>
-		/// <param name="lfCollect"></param>
-		/// <param name="searchName"></param>
-		/// <returns></returns>
-		private ResultBuffer DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, List<LayerFilter> lFilters )
-		{
-
-			// if the list of layer filters found is null, no filters to delete, return null
-			if (lFilters == null)
-			{
-				//ed.WriteMessage("\n@22");
-				return null;
-			}
-
-			if (DeleteFilter(lfTree, lfCollect, lFilters[0]))
-			{
-				// update the layer palette to have the changes show up
-				refreshLayerManager();
-			}
-
-			return BuildResBuffer(lFilters);
-		}
-
-		/// <summary>
 		/// Deletes all of the filters in the List provided
 		/// </summary>
 		/// <param name="lfTree"></param>
@@ -578,7 +558,7 @@ namespace LayerFilterUtil
 
 			//ed.WriteMessage("\n@10");
 
-			if (lFilters.Count == 0) { return resBuffer; }
+			if (lFilters == null || lFilters.Count == 0) { return resBuffer; }
 
 			//ed.WriteMessage("\n@11 count= " + lFilters.Count);
 
@@ -586,7 +566,7 @@ namespace LayerFilterUtil
 			{
 				//ed.WriteMessage("\n@12 name= " + lFilter.Name);
 				//DeleteOneFilter(lfTree, lfCollect, lFilter.Name);
-				DeleteFilter(lfTree, lfCollect, lFilter);
+				DeleteOneFilter(lfTree, lfCollect, lFilter);
 			}
 
 
@@ -951,7 +931,7 @@ namespace LayerFilterUtil
 			{
 				// setup for the nestCount check
 
-				Match m = Regex.Match(nestCount,@"^(=|==|<=|>=|!=|<|>)\s*(\d+)");
+				Match m = Regex.Match(nestCount,@"^(|=|==|<=|>=|!=|<|>)\s*(\d+)");
 
 				int nestCountValue;
 
@@ -961,6 +941,7 @@ namespace LayerFilterUtil
 
 					switch (m.Groups[1].Value)
 					{
+						case "":
 						case "=":
 						case "==":
 							nestCountResult = lFilter.NestedFilters.Count == nestCountValue;
