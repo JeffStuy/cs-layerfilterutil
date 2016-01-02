@@ -92,7 +92,7 @@ namespace LayerFilterUtil
 			switch (((string)tvArgs[FUNCTION].Value).ToLower())
 			{
 				case "list":
-					// validate the args buffer, 2nd level - there can be only a single argument
+					// validate the args buffer - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
 						return ListFilters(lfCollect);
