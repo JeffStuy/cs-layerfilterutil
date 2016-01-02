@@ -149,7 +149,6 @@ namespace LayerFilterUtil
 							//ed.WriteMessage("\n@1.1"); 
 							return DeleteOneFilter(lfTree, lfCollect, (string)tvArgs[FILTER_NAME].Value);
 
-							// this is a test
 						}
 					}
 					else
