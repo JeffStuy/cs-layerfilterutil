@@ -1,18 +1,16 @@
-﻿// (C) Copyright 2015 by  
-//
+﻿// (C) Copyright 2016 by CyberStudioApps.com / Jeff Stuyvesant
+
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Reflection;
 
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.LayerManager;
-using System.Text.RegularExpressions;
-using System.Windows.Automation.Peers;
 
 
 // This line is not mandatory, but improves loading performances
@@ -197,6 +195,10 @@ namespace LayerFilterUtil
 				case "usage":
 					DisplayUsage();
 					break;
+				case "version":
+					
+					ed.WriteMessage("LayerFilterUtil version: " + typeof(MyCommands).Assembly.GetName().Version);
+					break;
 			}
 
 			return null;
@@ -212,20 +214,36 @@ namespace LayerFilterUtil
 			return BuildResBuffer(SearchFilters(lfCollect));
 		}
 
-
+		/// <summary>
+		/// Finds a filter based on the information provided:
+		/// If only (2) args ("find" + layername) - return just the one filter
+		/// If a list is provided ("find" + a list of search criteria) find all
+		/// filters that match the criteria
+		/// </summary>
+		/// <param name="lfCollect"></param>
+		/// <param name="tvArgs"></param>
+		/// <returns></returns>
 		private ResultBuffer FindFilter(LayerFilterCollection lfCollect, TypedValue[] tvArgs)
 		{
 			if (tvArgs.Length == 2)
 			{
 				if (tvArgs[FILTER_NAME].TypeCode == (int) LispDataType.Text)
 				{
-					// search for the layer filter 
-					return FindOneFilter(lfCollect, ((string) tvArgs[FILTER_NAME].Value));
+					ClearCriteria();
+
+					Criteria[CRIT_LAYERNAME].Operator = "==";
+					Criteria[CRIT_LAYERNAME].Operand = (string) tvArgs[FILTER_NAME].Value;
+
+					List<LayerFilter> lFilters = SearchFilters(lfCollect);
+
+					if (lFilters != null)
+					{
+						return BuildResBuffer(lFilters);
+					}
 				}
 			}
 			else
 			{
-
 				// more than 2 args - have a criteria list
 				// parse the criteria list
 
@@ -234,138 +252,15 @@ namespace LayerFilterUtil
 					return null;
 				}
 
-				ed.WriteMessage("\nCriteria list length: " + Criteria.Length);
+				List<LayerFilter> lFilters = SearchFilters(lfCollect);
 
-				for (int i = 0; i < Criteria.Length; i++)
+				if (lFilters != null)
 				{
-					ed.WriteMessage("\n #" + i + ":\t\t"
-						+ Criteria[i].Name + " : " + Criteria[i].Operator + " : "
-						+ Criteria[i].Operand);
+					return BuildResBuffer(lFilters);
 				}
-
-				ed.WriteMessage("\n");
-
 			}
 
 			return null;
-		}
-
-		/// <summary>
-		/// Clear any existing criteria information
-		/// </summary>
-		private void ClearCriteria()
-		{
-			foreach (CriteriaData item in Criteria) {
-				item.Operator = "";
-				item.Operand = "";
-			}
-		}
-
-		/// <summary>
-		/// Process the arg list for the search criteria
-		/// return true if processed sucessfully
-		/// return false if anything is worng
-		/// </summary>
-		/// <param name="tvArgs"></param>
-		/// <returns></returns>
-		bool GetCriteriaFromArg(TypedValue[] tvArgs)
-		{
-
-			// eliminate any old data in the Criteria Array
-			ClearCriteria();
-
-			// if there are too few args (== no criteria), or
-			// the TypeCode for the front / end of the list is wrong
-			// return null;
-			if (tvArgs.Length < FILTER_CRITERIA + 3 || 
-				tvArgs[FILTER_CRITERIA].TypeCode != (int)LispDataType.ListBegin ||
-				tvArgs[tvArgs.Length - 1].TypeCode != (int)LispDataType.ListEnd)
-			{
-				return false;
-			}
-
-			const int CRIT_TYPE = 1;
-			const int CRIT_OPERATOR = 2;
-			const int CRIT_VALUE = 3;
-
-			int CriteriaIdx;
-			string CriteriaOperator;
-			string CriteriaValue;
-			bool CriteriaBoolean;
-
-			// run through the list and parse out the criteria
-			for (int i = FILTER_CRITERIA + 1; i < tvArgs.Length - 1; i++)
-			{
-				// if any of the criteria passed is of the wrong type, whold list is invalid 
-				// return an empty list
-				if (tvArgs[i].TypeCode != (int)LispDataType.Text) { return false; }
-
-				CriteriaBoolean = false;
-				// got one criteria element - sub-divide
-				Match m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternAllTests, RegexOptions.IgnoreCase);
-
-				// if the regular type of test failed, check for boolean form
-				if (!m.Success)
-				{
-					m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternBoolean, RegexOptions.IgnoreCase);
-					CriteriaBoolean = true;
-				}
-
-				// if the boolean form failed, all done, return fail
-				if (!m.Success) { return false;}
-
-				// m.group[0] = whole match
-				// m.group[1] = criteria type
-				// m.group[2] = operator
-				// m.group[3] = criteria value
-
-				CriteriaIdx = MatchCriteriaName(m.Groups[CRIT_TYPE].Value.ToLower());
-
-//				ed.WriteMessage("\n@1: idx: " + CriteriaIdx);
-//				ed.WriteMessage("\ntype: " + m.Groups[CRIT_TYPE].Operand);
-//				ed.WriteMessage("\noper: " + m.Groups[CRIT_OPERATOR].Operand);
-//				ed.WriteMessage("\nval: " + m.Groups[CRIT_VALUE].Operand + "\n");
-
-
-				if (CriteriaIdx < 0) { return false; }
-
-				// preform some quick adjustments
-
-				CriteriaOperator = m.Groups[CRIT_OPERATOR].Value.Equals("") ||
-					m.Groups[CRIT_OPERATOR].Value.Equals("=") ? "==" :
-					m.Groups[CRIT_OPERATOR].Value;
-
-				CriteriaValue = (m.Groups[CRIT_VALUE].Value).ToLower();
-
-				if (CriteriaBoolean)
-				{
-					if (Regex.Match(CriteriaValue, @"(1|on|yes)").Success)
-					{
-						CriteriaValue = "true";
-					} 
-					else if (Regex.Match(CriteriaValue, @"(0|off|no)").Success)
-					{
-						CriteriaValue = "false";
-					} 
-				}
-
-				Criteria[CriteriaIdx].Operator = CriteriaOperator;
-				Criteria[CriteriaIdx].Operand = CriteriaValue;
-			}
-
-			return true;
-		}
-
-		int MatchCriteriaName(string SearchName)
-		{
-			for (int i = 0; i < Criteria.Length; i++)
-			{
-				if (Criteria[i].Name.Equals(SearchName))
-				{
-					return i;
-				}
-			}
-			return -1;
 		}
 
 
@@ -378,14 +273,19 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer FindOneFilter(LayerFilterCollection lfCollect, string searchName)
 		{
-			List<LayerFilter> lFilter = SearchFilters(lfCollect, Name: searchName);
+			ClearCriteria();
 
-			if (lFilter.Count <= 0)
+			Criteria[CRIT_LAYERNAME].Operator = "==";
+			Criteria[CRIT_LAYERNAME].Operand = searchName;
+
+			List<LayerFilter> lFilters = SearchFilters(lfCollect);
+
+			if (lFilters.Count <= 0)
 			{
 				return null;
 			}
 
-			return BuildResBuffer(lFilter);
+			return BuildResBuffer(lFilters);
 		}
 
 		/// <summary>
@@ -396,12 +296,8 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer AddFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, TypedValue[] tvArgs)
 		{
-
-			//DisplayArgs(tvArgs);
-
 			// validate parameters
 			// by getting to this point, first parameter validated
-
 
 			// minimum of 5 parameters and 
 			// parameters 1 & 2 must be text
@@ -412,17 +308,10 @@ namespace LayerFilterUtil
 				|| tvArgs[FILTER_TYPE].TypeCode != (int)LispDataType.Text
 				|| (tvArgs[FILTER_PARENT].TypeCode != (int)LispDataType.Text
 				&& tvArgs[FILTER_PARENT].TypeCode != (int)LispDataType.Nil)
-				|| SearchOneFilter(lfCollect, Name: (string)tvArgs[FILTER_NAME].Value) != null)
+				|| SearchOneFilter(lfCollect, (string)tvArgs[FILTER_NAME].Value) != null)
 			{
 				return null;
 			}
-//
-//			// parameter 4+ must be text
-//			for (int i = FILTER_EXPRESSION; i < tvArgs.Length; i++)
-//			{
-//				if (tvArgs[i].TypeCode != (int)LispDataType.Text)
-//					return null;
-//			}
 
 			// proceed based on filter type
 
@@ -676,17 +565,25 @@ namespace LayerFilterUtil
 		{
 			if (tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
 			{
-				string FilterName = (string)tvArgs[FILTER_NAME].Value;
+				string searchName = (string)tvArgs[FILTER_NAME].Value;
 				nestDepth = 0;
 
-				if (FilterName != "*")
+				if (searchName != "*")
 				{
 					// delete one named filter
 					if (tvArgs.Length == 2)
 					{
 						// create a list that should only be for the one filter based
 						// on the name and that is may be deleted
-						List<LayerFilter> lFilters = SearchOneFilter(lfCollect, Name: FilterName, allowDelete: true);
+						ClearCriteria();
+
+						Criteria[CRIT_LAYERNAME].Operator = "==";
+						Criteria[CRIT_LAYERNAME].Operand = searchName;
+
+						Criteria[CRIT_ALLOWDELETE].Operator = "==";
+						Criteria[CRIT_ALLOWDELETE].Operand = "true";
+
+						List<LayerFilter> lFilters = SearchFilters(lfCollect);
 
 						if (lFilters.Count == 1)
 						{
@@ -698,7 +595,13 @@ namespace LayerFilterUtil
 				{
 					// special case, name to delete is *
 					// delete all filters that are not marked as cannot delete
-					List<LayerFilter> lfList = SearchFilters(lfCollect, allowDelete: true);
+
+					ClearCriteria();
+
+					Criteria[CRIT_ALLOWDELETE].Operator = "==";
+					Criteria[CRIT_ALLOWDELETE].Operand = "true";
+
+					List<LayerFilter> lfList = SearchFilters(lfCollect);
 
 					if (lfList != null && lfList.Count > 0)
 					{
@@ -979,21 +882,52 @@ namespace LayerFilterUtil
 			ResBuffer.Add(new TypedValue((int)LispDataType.ListEnd));
 		}
 
-		/// <summary>
-		/// Search for LayerFilters based on the criteria provided
-		/// </summary>
-		/// <param name="lfCollect"></param>
-		/// <param name="Name"></param>
-		/// <param name="Parent"></param>
-		/// <param name="allowDelete"></param>
-		/// <param name="isGroup"></param>
-		/// <param name="allowNested"></param>
-		/// <param name="nestCount"></param>
-		/// <returns></returns>
-		private List<LayerFilter> SearchFilters(LayerFilterCollection lfCollect, 
-			string Name = null, string Parent = null, 
-			bool? allowDelete = null, bool? isGroup = null, 
-			bool? allowNested = null, string nestCount = null)
+//		/// <summary>
+//		/// Search for LayerFilters based on the criteria provided
+//		/// </summary>
+//		/// <param name="lfCollect"></param>
+//		/// <param name="Name"></param>
+//		/// <param name="Parent"></param>
+//		/// <param name="allowDelete"></param>
+//		/// <param name="isGroup"></param>
+//		/// <param name="allowNested"></param>
+//		/// <param name="nestCount"></param>
+//		/// <returns></returns>
+//		private List<LayerFilter> SearchFilters(LayerFilterCollection lfCollect, 
+//			string Name = null, string Parent = null, 
+//			bool? allowDelete = null, bool? isGroup = null, 
+//			bool? allowNested = null, string nestCount = null)
+//		{
+//			// create the blank list (no elements - length == 0)
+//			List<LayerFilter> lfList = new List<LayerFilter>();
+//
+//			if (lfCollect.Count == 0 || nestDepth > 100) { return lfList; }
+//
+//			// prevent from getting too deep
+//			nestDepth++;
+//
+//			foreach (LayerFilter lFilter in lfCollect)
+//			{
+//				if (ValidateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+//					lfList.Add(lFilter);
+//				}
+//
+//				if (lFilter.NestedFilters.Count != 0)
+//				{
+//					List<LayerFilter> lfListReturn = 
+//						SearchFilters(lFilter.NestedFilters, Name, Parent, allowDelete, isGroup, allowNested, nestCount);
+//
+//					if (lfListReturn != null && lfListReturn.Count != 0)
+//					{
+//						lfList.AddRange(lfListReturn);
+//					}
+//				}
+//			}
+//
+//			return lfList;
+//		}
+
+		private List<LayerFilter> SearchFilters(LayerFilterCollection lfCollect)
 		{
 			// create the blank list (no elements - length == 0)
 			List<LayerFilter> lfList = new List<LayerFilter>();
@@ -1005,14 +939,15 @@ namespace LayerFilterUtil
 
 			foreach (LayerFilter lFilter in lfCollect)
 			{
-				if (ValidateFilter(lFilter, Name, Parent, allowDelete, isGroup, allowNested, nestCount)) {
+				if (ValidateFilter(lFilter))
+				{
 					lfList.Add(lFilter);
 				}
 
 				if (lFilter.NestedFilters.Count != 0)
 				{
-					List<LayerFilter> lfListReturn = 
-						SearchFilters(lFilter.NestedFilters, Name, Parent, allowDelete, isGroup, allowNested, nestCount);
+					List<LayerFilter> lfListReturn =
+						SearchFilters(lFilter.NestedFilters);
 
 					if (lfListReturn != null && lfListReturn.Count != 0)
 					{
@@ -1025,28 +960,47 @@ namespace LayerFilterUtil
 		}
 
 		/// <summary>
-		/// Search for one LayerFilter based on the criteria provided
+		/// Search for a filter of the name provided
 		/// </summary>
 		/// <param name="lfCollect"></param>
-		/// <param name="Name"></param>
-		/// <param name="Parent"></param>
-		/// <param name="allowDelete"></param>
-		/// <param name="isGroup"></param>
-		/// <param name="allowNested"></param>
-		/// <param name="nestCount"></param>
+		/// <param name="searchName"></param>
 		/// <returns></returns>
-		private List<LayerFilter> SearchOneFilter(LayerFilterCollection lfCollect,
-			string Name = null, string Parent = null,
-			bool? allowDelete = null, bool? isGroup = null,
-			bool? allowNested = null, string nestCount = null)
+		private List<LayerFilter> SearchOneFilter(LayerFilterCollection lfCollect, string searchName)
 		{
-			// create the list of LayerFilters
-			List<LayerFilter> lFilters = new List<LayerFilter>(SearchFilters(lfCollect, Name, Parent, allowDelete, isGroup, allowNested, nestCount));
+			ClearCriteria();
 
-			// return LayerFilter if only 1 found, else return null
+			Criteria[CRIT_LAYERNAME].Operator = "==";
+			Criteria[CRIT_LAYERNAME].Operand = searchName;
+
+			List<LayerFilter> lFilters = SearchFilters(lfCollect);
+
 			return (lFilters.Count == 1 ? lFilters : null);
-		}
 
+		} 
+
+//		/// <summary>
+//		/// Search for one LayerFilter based on the criteria provided
+//		/// </summary>
+//		/// <param name="lfCollect"></param>
+//		/// <param name="Name"></param>
+//		/// <param name="Parent"></param>
+//		/// <param name="allowDelete"></param>
+//		/// <param name="isGroup"></param>
+//		/// <param name="allowNested"></param>
+//		/// <param name="nestCount"></param>
+//		/// <returns></returns>
+//		private List<LayerFilter> SearchOneFilter(LayerFilterCollection lfCollect,
+//			string Name = null, string Parent = null,
+//			bool? allowDelete = null, bool? isGroup = null,
+//			bool? allowNested = null, string nestCount = null)
+//		{
+//			// create the list of LayerFilters
+//			List<LayerFilter> lFilters = new List<LayerFilter>(SearchFilters(lfCollect, Name, Parent, allowDelete, isGroup, allowNested, nestCount));
+//
+//			// return LayerFilter if only 1 found, else return null
+//			return (lFilters.Count == 1 ? lFilters : null);
+//		}
+//
 		/// <summary>
 		/// Validate a filter against the Criteria array
 		/// </summary>
@@ -1075,14 +1029,14 @@ namespace LayerFilterUtil
 						}
 						break;
 					case Compare.Int:
-						int Value;
+						int iValue;
 
-						if (!int.TryParse(Criteria[i].Operand, out Value)) { return false; }
+						if (!int.TryParse(Criteria[i].Operand, out iValue)) { return false; }
 
 						switch (i)
 						{
 							case CRIT_NESTCOUNT:
-								if (!CompareMe(lFilter.NestedFilters.Count, Criteria[i].Operator, Value)) { return false;  }
+								if (!CompareMe(lFilter.NestedFilters.Count, Criteria[i].Operator, iValue)) { return false;  }
 								break;
 							default:
 								return false;
@@ -1090,25 +1044,26 @@ namespace LayerFilterUtil
 						break;
 					case Compare.Bool:
 
-						bool Value;
+						bool bValue;
 
-						if (!bool.TryParse(Criteria[i].Operand, out Value)) { return false; }
+						if (!bool.TryParse(Criteria[i].Operand, out bValue)) { return false; }
 
 						switch (i)
 						{
 							case CRIT_ISGROUP:
-								if (!lFilter.IsIdFilter == Value) { return false;}
+								if (lFilter.IsIdFilter != bValue) { return false;}
 								break;
 							case CRIT_ALLOWDELETE:
-								if (!lFilter.AllowDelete == Value) { return false; }
+								if (lFilter.AllowDelete != bValue) { return false; }
 								break;
 							case CRIT_ALLOWNESTED:
-								if (!lFilter.AllowNested == Value) { return false; }
+								if (lFilter.AllowNested != bValue) { return false; }
 								break;
 							default:
 								return false;
 						}
-						break;
+
+					break;
 				}
 
 			}
@@ -1246,6 +1201,119 @@ namespace LayerFilterUtil
 			return false;
 		}
 
+		/// <summary>
+		/// Clear any existing criteria information
+		/// </summary>
+		private void ClearCriteria()
+		{
+			foreach (CriteriaData item in Criteria) {
+				item.Operator = "";
+				item.Operand = "";
+			}
+		}
+
+
+		int MatchCriteriaName(string SearchName)
+		{
+			for (int i = 0; i < Criteria.Length; i++)
+			{
+				if (Criteria[i].Name.Equals(SearchName))
+				{
+					return i;
+				}
+			}
+			return -1;
+		}
+
+		/// <summary>
+		/// Process the arg list for the search criteria
+		/// return true if processed sucessfully
+		/// return false if anything is worng
+		/// </summary>
+		/// <param name="tvArgs"></param>
+		/// <returns></returns>
+		bool GetCriteriaFromArg(TypedValue[] tvArgs)
+		{
+
+			// eliminate any old data in the Criteria Array
+			ClearCriteria();
+
+			// if there are too few args (== no criteria), or
+			// the TypeCode for the front / end of the list is wrong
+			// return null;
+			if (tvArgs.Length < FILTER_CRITERIA + 3 || 
+				tvArgs[FILTER_CRITERIA].TypeCode != (int)LispDataType.ListBegin ||
+				tvArgs[tvArgs.Length - 1].TypeCode != (int)LispDataType.ListEnd)
+			{
+				return false;
+			}
+
+			const int CRIT_TYPE = 1;
+			const int CRIT_OPERATOR = 2;
+			const int CRIT_VALUE = 3;
+
+			int CriteriaIdx;
+			string CriteriaOperator;
+			string CriteriaValue;
+			bool CriteriaBoolean;
+
+			// run through the list and parse out the criteria
+			for (int i = FILTER_CRITERIA + 1; i < tvArgs.Length - 1; i++)
+			{
+				// if any of the criteria passed is of the wrong type, whold list is invalid 
+				// return an empty list
+				if (tvArgs[i].TypeCode != (int)LispDataType.Text) { return false; }
+
+				CriteriaBoolean = false;
+
+				// got one criteria element - sub-divide
+				Match m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternAllTests, RegexOptions.IgnoreCase);
+
+				// if the regular type of test failed, check for boolean form
+				if (!m.Success)
+				{
+					m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternBoolean, RegexOptions.IgnoreCase);
+					CriteriaBoolean = true;
+				}
+
+				// if the boolean form failed, all done, return fail
+				if (!m.Success) { return false;}
+
+				// m.group[0] = whole match
+				// m.group[1] = criteria type
+				// m.group[2] = operator
+				// m.group[3] = criteria value
+
+				CriteriaIdx = MatchCriteriaName(m.Groups[CRIT_TYPE].Value.ToLower());
+
+				if (CriteriaIdx < 0) { return false; }
+
+				// preform some quick adjustments
+
+				CriteriaOperator = m.Groups[CRIT_OPERATOR].Value.Equals("") ||
+					m.Groups[CRIT_OPERATOR].Value.Equals("=") ? "==" :
+					m.Groups[CRIT_OPERATOR].Value;
+
+				CriteriaValue = (m.Groups[CRIT_VALUE].Value).ToLower();
+
+				if (CriteriaBoolean)
+				{
+					if (Regex.Match(CriteriaValue, @"(1|on|yes)").Success)
+					{
+						CriteriaValue = "true";
+					} 
+					else if (Regex.Match(CriteriaValue, @"(0|off|no)").Success)
+					{
+						CriteriaValue = "false";
+					} 
+				}
+
+				Criteria[CriteriaIdx].Operator = CriteriaOperator;
+				Criteria[CriteriaIdx].Operand = CriteriaValue;
+			}
+
+			return true;
+		}
 
 		/// <summary>
 		/// Process the argument list and extract the layer names
@@ -1357,6 +1425,18 @@ namespace LayerFilterUtil
 		}
 
 #if DEBUG
+		/// <summary>
+		/// Display the data in the criteria array
+		/// </summary>
+		private void DisplayCriteria()
+		{
+			ed.WriteMessage("\nListing Criteria:");
+			foreach (CriteriaData item in Criteria)
+			{
+				ed.WriteMessage("\nName: " + item.Name + " : operator: " + item.Operator + " : operand: " + item.Operand);
+			}
+		}
+
 		/// <summary>
 		/// List the information about the args passed to the command
 		/// </summary>
