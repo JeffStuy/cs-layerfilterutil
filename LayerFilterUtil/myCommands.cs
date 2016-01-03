@@ -126,6 +126,9 @@ namespace LayerFilterUtil
 			// reset for each usage
 			nestDepth = 0;
 
+			// make sure that the criteria list is empty
+			ClearCriteria();
+
 			// process the args buffer
 			// if passed is null, no good return null
 			if (args != null)
@@ -139,7 +142,6 @@ namespace LayerFilterUtil
 				{
 					return null;
 				}
-
 			}
 			else
 			{
@@ -150,6 +152,7 @@ namespace LayerFilterUtil
 			switch (((string)tvArgs[FUNCTION].Value).ToLower())
 			{
 				case "list":
+					// bmk: List
 					// validate the args buffer - there can be only a single argument
 					if (tvArgs.Length == 1)
 					{
@@ -157,12 +160,13 @@ namespace LayerFilterUtil
 					}
 					break;
 				case "find":
+					// bmk: Find
 					// finding existing layer filter(s)
 
 					return FindFilter(lfCollect, tvArgs);
 					break;
 				case "add":
-
+					// bmk: Add
 					// add a new layer filter to the layer filter collection
 					// allow the filter to be added as a nested filter to another filter
 					// except that any filter that cannot be deleted, cannot have nested filters
@@ -184,6 +188,7 @@ namespace LayerFilterUtil
 					return AddFilter(lfTree, lfCollect, tvArgs);
 					break;
 				case "delete":
+					// bmk: Delete
 					// deleting existing layer filter(s) - only 2 args allowed
 					// special case filter to delete = "*" means all of the existing filters
 					// except those filters marked as "cannot delete"
@@ -193,10 +198,11 @@ namespace LayerFilterUtil
 					
 					break;
 				case "usage":
+					// bmk: Usage
 					DisplayUsage();
 					break;
 				case "version":
-					
+					// bmk: Version
 					ed.WriteMessage("LayerFilterUtil version: " + typeof(MyCommands).Assembly.GetName().Version);
 					break;
 			}
@@ -211,6 +217,8 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer ListFilters(LayerFilterCollection lfCollect)
 		{
+			ClearCriteria();
+
 			return BuildResBuffer(SearchFilters(lfCollect));
 		}
 
@@ -1071,65 +1079,65 @@ namespace LayerFilterUtil
 			return true;
 		}
 
-		/// <summary>
-		/// Based on the criteria provided, determine if the LayerFilter matches
-		/// all criteria fields can be null - a null criteria indicates to not
-		/// check that criteria item
-		/// </summary>
-		/// <param name="lFilter">LayerFilter to check</param>
-		/// <param name="Name">Name criteria</param>
-		/// <param name="Parent">Parent criteria</param>
-		/// <param name="allowDelete">allowDelete flag criteria</param>
-		/// <param name="isGroup">is group filter flag criteria</param>
-		/// <param name="allowNested">allowNested flag criteria</param>
-		/// <param name="nestCount">nestCount (as a string) criteria - 
-		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
-		/// <returns></returns>
-
-		private bool ValidateFilter(LayerFilter lFilter, 
-			string Name = null, string Parent = null, 
-			bool? allowDelete = null, bool? isGroup = null, 
-			bool? allowNested = null, string nestCount = null)
-		{
-
-			// make easy tests first
-			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
-
-			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
-
-			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
-
-			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
-
-			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
-
-			// process nestCount
-			// this allows for a conditional + a number to be
-			// specified to determine a match
-			if (nestCount != null && nestCount.Length > 1)
-			{
-				// setup for the nestCount check
-
-				Match m = Regex.Match(nestCount,@"^(|=|==|<=|>=|!=|<|>)\s*(\d+)");
-
-				int nestCountValue;
-
-				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
-				{
-
-					return CompareMe(lFilter.NestedFilters.Count, m.Groups[1].Value, nestCountValue);
-
-				}
-				else
-				{
-					// regex match failed or int.TryParse failed
-					// cannot proceed - return false
-					return false;
-				}
-			}
-			// get here, all tests passed
-			return true;
-		}
+//		/// <summary>
+//		/// Based on the criteria provided, determine if the LayerFilter matches
+//		/// all criteria fields can be null - a null criteria indicates to not
+//		/// check that criteria item
+//		/// </summary>
+//		/// <param name="lFilter">LayerFilter to check</param>
+//		/// <param name="Name">Name criteria</param>
+//		/// <param name="Parent">Parent criteria</param>
+//		/// <param name="allowDelete">allowDelete flag criteria</param>
+//		/// <param name="isGroup">is group filter flag criteria</param>
+//		/// <param name="allowNested">allowNested flag criteria</param>
+//		/// <param name="nestCount">nestCount (as a string) criteria - 
+//		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
+//		/// <returns></returns>
+//
+//		private bool ValidateFilter(LayerFilter lFilter, 
+//			string Name = null, string Parent = null, 
+//			bool? allowDelete = null, bool? isGroup = null, 
+//			bool? allowNested = null, string nestCount = null)
+//		{
+//
+//			// make easy tests first
+//			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
+//
+//			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
+//
+//			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
+//
+//			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
+//
+//			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
+//
+//			// process nestCount
+//			// this allows for a conditional + a number to be
+//			// specified to determine a match
+//			if (nestCount != null && nestCount.Length > 1)
+//			{
+//				// setup for the nestCount check
+//
+//				Match m = Regex.Match(nestCount,@"^(|=|==|<=|>=|!=|<|>)\s*(\d+)");
+//
+//				int nestCountValue;
+//
+//				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
+//				{
+//
+//					return CompareMe(lFilter.NestedFilters.Count, m.Groups[1].Value, nestCountValue);
+//
+//				}
+//				else
+//				{
+//					// regex match failed or int.TryParse failed
+//					// cannot proceed - return false
+//					return false;
+//				}
+//			}
+//			// get here, all tests passed
+//			return true;
+//		}
 
 		/// <summary>
 		/// Performs a comparison on two strings based on the operator provided
