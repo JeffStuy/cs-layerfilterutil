@@ -2,6 +2,7 @@
 //
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 
@@ -27,10 +28,33 @@ namespace LayerFilterUtil
 	public class MyCommands
 	{
 
-		class CriteriaData 
+		enum Compare
 		{
-			public string Type { get; set; }
-			public string Criteria { get; set; }
+			String, Bool, Int
+		}
+
+		class CriteriaData
+		{
+			public readonly string Name1;
+			public readonly string Name2;
+			public string Name
+			{
+				get { return Name1 + " " + Name2; }
+			}
+
+			public readonly Compare CompareType;
+
+			public string Operator { get; set; }
+			public string Operand { get; set; }
+
+			public CriteriaData(string Name1, String Name2, Compare CompareType)
+			{
+				this.Name1 = Name1;
+				this.Name2 = Name2;
+				this.CompareType = CompareType;
+				Operator = "";
+				Operand = "";
+			}
 		}
 
 
@@ -45,40 +69,38 @@ namespace LayerFilterUtil
 		private const int FILTER_LAYERS = 4;
 		private const int FILTER_MIN = 5;
 
-		private const int CRITERIA_LAYERNAME = 0;
-		private const int CRITERIA_PARENTNAME = 1;
-		private const int CRITERIA_ISGROUP = 2;
-		private const int CRITERIA_ALLOWDELETE = 3;
-		private const int CRITERIA_ALLOWNESTED = 4;
-		private const int CRITERIA_NESTCOUNT = 5;
+		private const int CRIT_LAYERNAME = 0;
+		private const int CRIT_PARENTNAME = 1;
+		private const int CRIT_ISGROUP = 2;
+		private const int CRIT_ALLOWDELETE = 3;
+		private const int CRIT_ALLOWNESTED = 4;
+		private const int CRIT_NESTCOUNT = 5;
 
 		// constants for the position of elements
 		// in the criteria list
-		private static Tuple<int, string, string> CRIT_LAYERNAME = new Tuple<int, string, string>(CRITERIA_LAYERNAME, "layer", "name");
-		private static Tuple<int, string, string> CRIT_PARENTNAME = new Tuple<int, string, string>(CRITERIA_PARENTNAME, "parent", "name");
-		private static Tuple<int, string, string> CRIT_ISGROUP = new Tuple<int, string, string>(CRITERIA_ISGROUP, "is", "group");
-		private static Tuple<int, string, string> CRIT_ALLOWDELETE = new Tuple<int, string, string>(CRITERIA_ALLOWDELETE, "allow", "delete");
-		private static Tuple<int, string, string> CRIT_ALLOWNESTED = new Tuple<int, string, string>(CRITERIA_ALLOWNESTED, "allow", "nested");
-		private static Tuple<int, string, string> CRIT_NESTCOUNT = new Tuple<int, string, string>(CRITERIA_NESTCOUNT, "nest", "count");
+		private static CriteriaData[] Criteria =
+		{
+			new CriteriaData("layer", "name", Compare.String),
+			new CriteriaData("parent", "name", Compare.String),
+			new CriteriaData("is", "group", Compare.Bool),
+			new CriteriaData("allow", "delete", Compare.Bool),
+			new CriteriaData("allow", "nested", Compare.Bool),
+			new CriteriaData("nest", "count", Compare.Int)
+		};
 
-		SortedList<string, int> CriteriaList = new SortedList<string, int>(6);
-
-		private string CriteriaPattern = "("
-										+ CRIT_LAYERNAME.Item2 + "\\s+" + CRIT_LAYERNAME.Item3 + "|"
-										+ CRIT_PARENTNAME.Item2 + "\\s+" + CRIT_PARENTNAME.Item3 + "|"
-										+ CRIT_ISGROUP.Item2 + "\\s+" + CRIT_ISGROUP.Item3 + "|"
-										+ CRIT_ALLOWDELETE.Item2 + "\\s+" + CRIT_ALLOWDELETE.Item3 + "|"
-										+ CRIT_ALLOWNESTED.Item2 + "\\s+" + CRIT_ALLOWNESTED.Item3 + "|"
-										+ CRIT_NESTCOUNT.Item2 + "\\s+" + CRIT_NESTCOUNT.Item3 + ")" +
-										@"\s*(|=|==|<=|>=|!=|<|>)\s*(?!.*[\<\>\/\\\""\:\;\?\*\|\=\'].*)(.*)\b";
+		private string CriteriaPatternAllTests = "("
+			+ Criteria[CRIT_LAYERNAME].Name1 + "\\s" + Criteria[CRIT_LAYERNAME].Name2 + "|"
+			+ Criteria[CRIT_PARENTNAME].Name1 + "\\s" + Criteria[CRIT_PARENTNAME].Name2 + "|"
+			+ Criteria[CRIT_NESTCOUNT].Name1 + "\\s" + Criteria[CRIT_NESTCOUNT].Name2 + ")" +
+			@"\s*(|=|==|<=|>=|!=|<|>)\s*(?!.*[\<\>\/\\\""\:\;\?\*\|\=\'].*)(.*)\b";
 
 
-		private readonly string C_LAYERNAME		= CRIT_LAYERNAME.Item2 + " " + CRIT_LAYERNAME.Item3;
-		private readonly string C_PARENTNAME	= CRIT_PARENTNAME.Item2 + " " + CRIT_PARENTNAME.Item3;
-		private readonly string C_ISGROUP		= CRIT_ISGROUP.Item2 + " " + CRIT_ISGROUP.Item3;
-		private readonly string C_ALLOWDELETE	= CRIT_ALLOWDELETE.Item2 + " " + CRIT_ALLOWDELETE.Item3;
-		private readonly string C_ALLOWNESTED	= CRIT_ALLOWNESTED.Item2 + " " + CRIT_ALLOWNESTED.Item3;
-		private readonly string C_NESTCOUNT		= CRIT_NESTCOUNT.Item2 + " " + CRIT_NESTCOUNT.Item3;
+		private string CriteriaPatternBoolean = @"("
+			+ Criteria[CRIT_ISGROUP].Name1 + "\\s" + Criteria[CRIT_ISGROUP].Name2 + "|"
+			+ Criteria[CRIT_ALLOWDELETE].Name1 + "\\s" + Criteria[CRIT_ALLOWDELETE].Name2 + "|"
+			+ Criteria[CRIT_ALLOWNESTED].Name1 + "\\s" + Criteria[CRIT_ALLOWNESTED].Name2 + ")" +
+			@"\s*(|=|==)\s*(true|false|on|off|yes|no|1|0)\b";
+
 
 		private static int nestDepth;
 
@@ -103,15 +125,7 @@ namespace LayerFilterUtil
 
 			TypedValue[] tvArgs;
 
-			// initalize the criteria list
-			CriteriaList.Add(C_LAYERNAME, CRIT_LAYERNAME.Item1);
-			CriteriaList.Add(C_PARENTNAME, CRIT_PARENTNAME.Item1);
-			CriteriaList.Add(C_ISGROUP, CRIT_ISGROUP.Item1);
-			CriteriaList.Add(C_ALLOWDELETE, CRIT_ALLOWDELETE.Item1);
-			CriteriaList.Add(C_ALLOWNESTED, CRIT_ALLOWNESTED.Item1);
-			CriteriaList.Add(C_NESTCOUNT, CRIT_NESTCOUNT.Item1);
-
-				// reset for each usage
+			// reset for each usage
 			nestDepth = 0;
 
 			// process the args buffer
@@ -212,44 +226,53 @@ namespace LayerFilterUtil
 			else
 			{
 
-				CriteriaData[] test = new CriteriaData()[6];
-
-				for (int j = 0; j <6; j++)
-				{
-					test[i].Type = "a";
-					test[i].Criteria = "b";
-				}
-
-				string a = test[0].Criteria;
-
-
 				// more than 2 args - have a criteria list
 				// parse the criteria list
 
-				string[] Criteria = GetCriteriaFromArg(tvArgs);
-
-				if (Criteria != null)
+				if (!GetCriteriaFromArg(tvArgs))
 				{
-					ed.WriteMessage("\nCriteria list length: " + Criteria.Length);
-
-					for (int i = 0; i < Criteria.Length; i++)
-					{
-						ed.WriteMessage("\n #" + i + ": " + CriteriaList.Keys[CriteriaList.IndexOfValue(i)] + " : " + Criteria[i]);
-					}
-
-					ed.WriteMessage("\n");
+					return null;
 				}
+
+				ed.WriteMessage("\nCriteria list length: " + Criteria.Length);
+
+				for (int i = 0; i < Criteria.Length; i++)
+				{
+					ed.WriteMessage("\n #" + i + ":\t\t"
+						+ Criteria[i].Name + " : " + Criteria[i].Operator + " : "
+						+ Criteria[i].Operand);
+				}
+
+				ed.WriteMessage("\n");
+
 			}
 
 			return null;
 		}
 
-		string[] GetCriteriaFromArg(TypedValue[] tvArgs)
+		/// <summary>
+		/// Clear any existing criteria information
+		/// </summary>
+		private void ClearCriteria()
+		{
+			foreach (CriteriaData item in Criteria) {
+				item.Operator = "";
+				item.Operand = "";
+			}
+		}
+
+		/// <summary>
+		/// Process the arg list for the search criteria
+		/// return true if processed sucessfully
+		/// return false if anything is worng
+		/// </summary>
+		/// <param name="tvArgs"></param>
+		/// <returns></returns>
+		bool GetCriteriaFromArg(TypedValue[] tvArgs)
 		{
 
-			DisplayArgs(tvArgs);
-
-			ed.WriteMessage("\n");
+			// eliminate any old data in the Criteria Array
+			ClearCriteria();
 
 			// if there are too few args (== no criteria), or
 			// the TypeCode for the front / end of the list is wrong
@@ -258,51 +281,91 @@ namespace LayerFilterUtil
 				tvArgs[FILTER_CRITERIA].TypeCode != (int)LispDataType.ListBegin ||
 				tvArgs[tvArgs.Length - 1].TypeCode != (int)LispDataType.ListEnd)
 			{
-				return null;
+				return false;
 			}
-
-			string[] Criteria = {"", "", "", "", "", ""};
-
-			// run through the list and parse out the criteria
 
 			const int CRIT_TYPE = 1;
 			const int CRIT_OPERATOR = 2;
 			const int CRIT_VALUE = 3;
 
 			int CriteriaIdx;
+			string CriteriaOperator;
+			string CriteriaValue;
+			bool CriteriaBoolean;
 
-			ed.WriteMessage("\n@0: criteria length: " + Criteria.Length);
-
+			// run through the list and parse out the criteria
 			for (int i = FILTER_CRITERIA + 1; i < tvArgs.Length - 1; i++)
 			{
 				// if any of the criteria passed is of the wrong type, whold list is invalid 
 				// return an empty list
-				if (tvArgs[i].TypeCode != (int)LispDataType.Text) { return null; }
+				if (tvArgs[i].TypeCode != (int)LispDataType.Text) { return false; }
 
+				CriteriaBoolean = false;
 				// got one criteria element - sub-divide
-				Match m = Regex.Match((string)tvArgs[i].Value, CriteriaPattern);
+				Match m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternAllTests, RegexOptions.IgnoreCase);
 
-				if (!m.Success) { return null;}
+				// if the regular type of test failed, check for boolean form
+				if (!m.Success)
+				{
+					m = Regex.Match((string)tvArgs[i].Value, CriteriaPatternBoolean, RegexOptions.IgnoreCase);
+					CriteriaBoolean = true;
+				}
+
+				// if the boolean form failed, all done, return fail
+				if (!m.Success) { return false;}
 
 				// m.group[0] = whole match
 				// m.group[1] = criteria type
 				// m.group[2] = operator
 				// m.group[3] = criteria value
 
-				CriteriaIdx = CriteriaList[m.Groups[CRIT_TYPE].Value.ToLower()];
+				CriteriaIdx = MatchCriteriaName(m.Groups[CRIT_TYPE].Value.ToLower());
 
-				ed.WriteMessage("\n@1: idx: " + CriteriaIdx);
-				ed.WriteMessage("\ntype: " + m.Groups[CRIT_TYPE].Value);
-				ed.WriteMessage("\noper: " + m.Groups[CRIT_OPERATOR].Value);
-				ed.WriteMessage("\nval: " + m.Groups[CRIT_VALUE].Value);
+//				ed.WriteMessage("\n@1: idx: " + CriteriaIdx);
+//				ed.WriteMessage("\ntype: " + m.Groups[CRIT_TYPE].Operand);
+//				ed.WriteMessage("\noper: " + m.Groups[CRIT_OPERATOR].Operand);
+//				ed.WriteMessage("\nval: " + m.Groups[CRIT_VALUE].Operand + "\n");
 
 
-				if (CriteriaIdx < 0) { return null; }
+				if (CriteriaIdx < 0) { return false; }
 
-				Criteria[CriteriaIdx] = (m.Groups[CRIT_OPERATOR].Value + m.Groups[CRIT_VALUE].Value);
+				// preform some quick adjustments
+
+				CriteriaOperator = m.Groups[CRIT_OPERATOR].Value.Equals("") ||
+					m.Groups[CRIT_OPERATOR].Value.Equals("=") ? "==" :
+					m.Groups[CRIT_OPERATOR].Value;
+
+				CriteriaValue = (m.Groups[CRIT_VALUE].Value).ToLower();
+
+				if (CriteriaBoolean)
+				{
+					if (Regex.Match(CriteriaValue, @"(1|on|yes)").Success)
+					{
+						CriteriaValue = "true";
+					} 
+					else if (Regex.Match(CriteriaValue, @"(0|off|no)").Success)
+					{
+						CriteriaValue = "false";
+					} 
+				}
+
+				Criteria[CriteriaIdx].Operator = CriteriaOperator;
+				Criteria[CriteriaIdx].Operand = CriteriaValue;
 			}
 
-			return Criteria;
+			return true;
+		}
+
+		int MatchCriteriaName(string SearchName)
+		{
+			for (int i = 0; i < Criteria.Length; i++)
+			{
+				if (Criteria[i].Name.Equals(SearchName))
+				{
+					return i;
+				}
+			}
+			return -1;
 		}
 
 
@@ -985,6 +1048,75 @@ namespace LayerFilterUtil
 		}
 
 		/// <summary>
+		/// Validate a filter against the Criteria array
+		/// </summary>
+		/// <param name="lFilter"></param>
+		/// <returns></returns>
+		private bool ValidateFilter(LayerFilter lFilter)
+		{
+			for (int i = 0; i < Criteria.Length; i++)
+			{
+				// if no operand, skip this test
+				if (Criteria[i].Operand.Equals("")) { continue; }
+
+				switch (Criteria[i].CompareType)
+				{
+					case Compare.String:
+						switch (i)
+						{
+							case CRIT_LAYERNAME:
+								if (!CompareMe(lFilter.Name, Criteria[i].Operator, Criteria[i].Operand)) { return false; }
+								break;
+							case CRIT_PARENTNAME:
+								if (!CompareMe(lFilter.Parent.Name, Criteria[i].Operator, Criteria[i].Operand)) { return false; }
+								break;
+							default:
+								return false;
+						}
+						break;
+					case Compare.Int:
+						int Value;
+
+						if (!int.TryParse(Criteria[i].Operand, out Value)) { return false; }
+
+						switch (i)
+						{
+							case CRIT_NESTCOUNT:
+								if (!CompareMe(lFilter.NestedFilters.Count, Criteria[i].Operator, Value)) { return false;  }
+								break;
+							default:
+								return false;
+						}
+						break;
+					case Compare.Bool:
+
+						bool Value;
+
+						if (!bool.TryParse(Criteria[i].Operand, out Value)) { return false; }
+
+						switch (i)
+						{
+							case CRIT_ISGROUP:
+								if (!lFilter.IsIdFilter == Value) { return false;}
+								break;
+							case CRIT_ALLOWDELETE:
+								if (!lFilter.AllowDelete == Value) { return false; }
+								break;
+							case CRIT_ALLOWNESTED:
+								if (!lFilter.AllowNested == Value) { return false; }
+								break;
+							default:
+								return false;
+						}
+						break;
+				}
+
+			}
+
+			return true;
+		}
+
+		/// <summary>
 		/// Based on the criteria provided, determine if the LayerFilter matches
 		/// all criteria fields can be null - a null criteria indicates to not
 		/// check that criteria item
@@ -1031,38 +1163,7 @@ namespace LayerFilterUtil
 				{
 
 					return CompareMe(lFilter.NestedFilters.Count, m.Groups[1].Value, nestCountValue);
-//
-//
-//					bool nestCountResult = false;
-//
-//					switch (m.Groups[1].Value)
-//					{
-//						case "":
-//						case "=":
-//						case "==":
-//							nestCountResult = lFilter.NestedFilters.Count == nestCountValue;
-//							break;
-//						case "<":
-//							nestCountResult = lFilter.NestedFilters.Count < nestCountValue;
-//							break;
-//						case "<=":
-//							nestCountResult = lFilter.NestedFilters.Count <= nestCountValue;
-//							break;
-//						case ">":
-//							nestCountResult = lFilter.NestedFilters.Count > nestCountValue;
-//							break;
-//						case ">=":
-//							nestCountResult = lFilter.NestedFilters.Count >= nestCountValue;
-//							break;
-//						case "!=":
-//							nestCountResult = lFilter.NestedFilters.Count != nestCountValue;
-//							break;
-//						default:
-//							nestCountResult = false;
-//							break;
-//					}
-//
-//					if (!nestCountResult) { return false; }
+
 				}
 				else
 				{
@@ -1144,6 +1245,7 @@ namespace LayerFilterUtil
 			}
 			return false;
 		}
+
 
 		/// <summary>
 		/// Process the argument list and extract the layer names
