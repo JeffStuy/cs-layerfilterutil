@@ -2,9 +2,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Reflection;
 
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.AutoCAD.ApplicationServices;
@@ -15,6 +15,7 @@ using Autodesk.AutoCAD.LayerManager;
 
 // This line is not mandatory, but improves loading performances
 [assembly: CommandClass(typeof(LayerFilterUtil.MyCommands))]
+[assembly: AssemblyVersion("2.0.1.0")]
 
 namespace LayerFilterUtil
 {
@@ -25,12 +26,13 @@ namespace LayerFilterUtil
 	// is implicitly per-document!
 	public class MyCommands
 	{
-
+		// simple enum for type of compare
 		enum Compare
 		{
 			String, Bool, Int
 		}
 
+		// inner class for the array of Criteria
 		class CriteriaData
 		{
 			public readonly string Name1;
@@ -571,15 +573,15 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer DeleteFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, TypedValue[] tvArgs)
 		{
-			if (tvArgs[FILTER_NAME].TypeCode == (int)LispDataType.Text)
+			if (tvArgs.Length == 2)
 			{
-				string searchName = (string)tvArgs[FILTER_NAME].Value;
-				nestDepth = 0;
-
-				if (searchName != "*")
+				// just a layer filter name provided
+				if (tvArgs[FILTER_NAME].TypeCode == (int) LispDataType.Text)
 				{
-					// delete one named filter
-					if (tvArgs.Length == 2)
+					string searchName = (string) tvArgs[FILTER_NAME].Value;
+					nestDepth = 0;
+
+					if (searchName != "*")
 					{
 						// create a list that should only be for the one filter based
 						// on the name and that is may be deleted
@@ -598,25 +600,49 @@ namespace LayerFilterUtil
 							return DeleteListOfFilters(lfTree, lfCollect, lFilters);
 						}
 					}
-				}
-				else
-				{
-					// special case, name to delete is *
-					// delete all filters that are not marked as cannot delete
-
-					ClearCriteria();
-
-					Criteria[CRIT_ALLOWDELETE].Operator = "==";
-					Criteria[CRIT_ALLOWDELETE].Operand = "true";
-
-					List<LayerFilter> lfList = SearchFilters(lfCollect);
-
-					if (lfList != null && lfList.Count > 0)
+					else
 					{
-						return DeleteListOfFilters(lfTree, lfCollect, lfList);
-					}
+						// special case, name to delete is *
+						// delete all filters that are not marked as cannot delete
 
+						ClearCriteria();
+
+						Criteria[CRIT_ALLOWDELETE].Operator = "==";
+						Criteria[CRIT_ALLOWDELETE].Operand = "true";
+
+						List<LayerFilter> lfList = SearchFilters(lfCollect);
+
+						if (lfList != null && lfList.Count > 0)
+						{
+							return DeleteListOfFilters(lfTree, lfCollect, lfList);
+						}
+
+					}
 				}
+			}
+			else
+			{
+				// more than 2 args - using search criteria?
+				//ed.WriteMessage("\n@1");
+				// more than (2) args - a criteria list has been provided
+				// get the critera from the arg list
+				if (!GetCriteriaFromArg(tvArgs)) { return null; }
+
+				//ed.WriteMessage("\n@2\n");
+				//DisplayCriteria();
+				//ed.WriteMessage("\n@3");
+
+				// now have the list of filters to delete
+				List<LayerFilter> lFilters = SearchFilters(lfCollect);
+
+				//ed.WriteMessage("\n@4 # of filters: " + lFilters.Count);
+
+				if (lFilters.Count > 0)
+				{
+					//ed.WriteMessage("\n@5");
+					return (DeleteListOfFilters(lfTree, lfCollect, lFilters));
+				}
+				//ed.WriteMessage("\n@9");
 			}
 			return null;
 		}
@@ -630,12 +656,21 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private bool DeleteOneFilter(LayerFilterTree lfTree, LayerFilterCollection lfCollect, LayerFilter lFilter)
 		{
-			
-			// if the LayerFilter provided is null, return false
-			if (lFilter == null)
+			// if the LayerFilter provided is null
+			// or the filter is not allowed to be deleted
+			// return null
+			if (lFilter == null || !lFilter.AllowDelete)
 			{
 				return false;
 			}
+
+			// when several filters are being deleted and
+			// because a parent filter can be deleted before
+			// before the child (which would delete the child
+			// automatically, must check whether he filter exists
+			// return true (already deleted)
+			if (SearchOneFilter(lfCollect, lFilter.Name) == null) { return true; }
+
 
 			// does this LayerFilter have a parent?
 			if (lFilter.Parent == null)
@@ -665,16 +700,15 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private ResultBuffer DeleteListOfFilters(LayerFilterTree lfTree, LayerFilterCollection lfCollect, List<LayerFilter> lFilters)
 		{
-			ResultBuffer resBuffer = new ResultBuffer();
-
-			if (lFilters == null || lFilters.Count == 0) { return resBuffer; }
+			// if no good info, return an empty ResultBuffer
+			if (lFilters == null || lFilters.Count == 0) { return new ResultBuffer(); }
 
 			foreach (LayerFilter lFilter in lFilters)
 			{
 				DeleteOneFilter(lfTree, lfCollect, lFilter);
 			}
 			// return the list of not deleted filters
-			return ListFilters(lfCollect);
+				return ListFilters(lfCollect);
 		}
 
 
@@ -694,6 +728,9 @@ namespace LayerFilterUtil
 			ed.WriteMessage("\n● Find a layer filter:");
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"find\" \"FilterNameToFind\")");
 
+			ed.WriteMessage("\n● Find a layer filter(s) based on criteria:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"find\" (list \"criteria\" \"criteria\"))");
+
 			ed.WriteMessage("\n● Add a top level property filter:");
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Property\" nil \"Expression\")");
 
@@ -708,6 +745,9 @@ namespace LayerFilterUtil
 
 			ed.WriteMessage("\n● Delete a layer filter:");
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"delete\" \"FilterNameToDelete\")");
+
+			ed.WriteMessage("\n● Delete a layer filter(s) based on criteria:");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"find\" (list \"criteria\" \"criteria\"))");
 
 			ed.WriteMessage("\n● Delete all allowable layer filters:");
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"delete\" \"*\")");
@@ -1078,67 +1118,7 @@ namespace LayerFilterUtil
 
 			return true;
 		}
-
-//		/// <summary>
-//		/// Based on the criteria provided, determine if the LayerFilter matches
-//		/// all criteria fields can be null - a null criteria indicates to not
-//		/// check that criteria item
-//		/// </summary>
-//		/// <param name="lFilter">LayerFilter to check</param>
-//		/// <param name="Name">Name criteria</param>
-//		/// <param name="Parent">Parent criteria</param>
-//		/// <param name="allowDelete">allowDelete flag criteria</param>
-//		/// <param name="isGroup">is group filter flag criteria</param>
-//		/// <param name="allowNested">allowNested flag criteria</param>
-//		/// <param name="nestCount">nestCount (as a string) criteria - 
-//		/// this requires a comparison operator: ==, !=, <, <=, >, >= </param>
-//		/// <returns></returns>
-//
-//		private bool ValidateFilter(LayerFilter lFilter, 
-//			string Name = null, string Parent = null, 
-//			bool? allowDelete = null, bool? isGroup = null, 
-//			bool? allowNested = null, string nestCount = null)
-//		{
-//
-//			// make easy tests first
-//			if (Name != null) { if (Name.Equals("") || !Name.Equals(lFilter.Name)) { return false; } }
-//
-//			if (Parent != null) { if (Parent.Equals("") || !Parent.Equals(lFilter.Parent)) { return false; } }
-//
-//			if (allowDelete != null) {if (allowDelete != lFilter.AllowDelete) {return false; } }
-//
-//			if (isGroup != null) { if (isGroup != lFilter.IsIdFilter) { return false; } }
-//
-//			if (allowNested != null) { if (allowNested != lFilter.AllowNested) { return false; } }
-//
-//			// process nestCount
-//			// this allows for a conditional + a number to be
-//			// specified to determine a match
-//			if (nestCount != null && nestCount.Length > 1)
-//			{
-//				// setup for the nestCount check
-//
-//				Match m = Regex.Match(nestCount,@"^(|=|==|<=|>=|!=|<|>)\s*(\d+)");
-//
-//				int nestCountValue;
-//
-//				if (m.Success && int.TryParse(m.Groups[2].Value, out nestCountValue))
-//				{
-//
-//					return CompareMe(lFilter.NestedFilters.Count, m.Groups[1].Value, nestCountValue);
-//
-//				}
-//				else
-//				{
-//					// regex match failed or int.TryParse failed
-//					// cannot proceed - return false
-//					return false;
-//				}
-//			}
-//			// get here, all tests passed
-//			return true;
-//		}
-
+		
 		/// <summary>
 		/// Performs a comparison on two strings based on the operator provided
 		/// </summary>
