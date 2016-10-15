@@ -15,7 +15,6 @@ using Autodesk.AutoCAD.LayerManager;
 
 // This line is not mandatory, but improves loading performances
 [assembly: CommandClass(typeof(LayerFilterUtil.MyCommands))]
-[assembly: AssemblyVersion("2.0.1.0")]
 
 namespace LayerFilterUtil
 {
@@ -80,7 +79,7 @@ namespace LayerFilterUtil
 		// in the criteria list
 		private static CriteriaData[] Criteria =
 		{
-			new CriteriaData("layer", "name", Compare.String),
+			new CriteriaData("filter", "name", Compare.String),
 			new CriteriaData("parent", "name", Compare.String),
 			new CriteriaData("is", "group", Compare.Bool),
 			new CriteriaData("allow", "delete", Compare.Bool),
@@ -166,7 +165,6 @@ namespace LayerFilterUtil
 					// finding existing layer filter(s)
 
 					return FindFilter(lfCollect, tvArgs);
-					break;
 				case "add":
 					// bmk: Add
 					// add a new layer filter to the layer filter collection
@@ -188,7 +186,6 @@ namespace LayerFilterUtil
 					// add a group filter to to another group filter (cannot be a property filter)
 
 					return AddFilter(lfTree, lfCollect, tvArgs);
-					break;
 				case "delete":
 					// bmk: Delete
 					// deleting existing layer filter(s) - only 2 args allowed
@@ -197,17 +194,16 @@ namespace LayerFilterUtil
 					// provided and is the 2nd arg a text arg?  if yes, proceed
 
 					return DeleteFilter(lfTree, lfCollect, tvArgs);
-					
-					break;
 				case "usage":
 					// bmk: Usage
 					DisplayUsage();
 					break;
 				case "version":
 					// bmk: Version
-					ed.WriteMessage("LayerFilterUtil version: " + typeof(MyCommands).Assembly.GetName().Version);
-					break;
-			}
+					//ed.WriteMessage("LayerFilterUtil version: " + typeof(MyCommands).Assembly.GetName().Version);
+					return new ResultBuffer(new TypedValue((int)LispDataType.Text,
+						"LayerFilterUtil version: " + typeof(MyCommands).Assembly.GetName().Version));
+				}
 
 			return null;
 		}
@@ -257,7 +253,7 @@ namespace LayerFilterUtil
 				// more than 2 args - have a criteria list
 				// parse the criteria list
 
-				if (!GetCriteriaFromArg(tvArgs))
+				if (!GetCriteriaFromArgList(tvArgs))
 				{
 					return null;
 				}
@@ -373,7 +369,6 @@ namespace LayerFilterUtil
 
 					// get here, something did not work - return nil
 					return null;
-					break;
 				case "group":
 					// final parameter validation:
 					// parameter count must be >= FILTER_MIN (basic parameters + list begin + (1) layer + list end)
@@ -409,7 +404,6 @@ namespace LayerFilterUtil
 						
 						// provide the return information
 						return null;
-						break;
 					}
 					else
 					{
@@ -436,9 +430,7 @@ namespace LayerFilterUtil
 					
 						// provide the return information
 						return null;
-						break;
 					}
-					break;
 			}
 			return null;
 		}
@@ -626,7 +618,7 @@ namespace LayerFilterUtil
 				//ed.WriteMessage("\n@1");
 				// more than (2) args - a criteria list has been provided
 				// get the critera from the arg list
-				if (!GetCriteriaFromArg(tvArgs)) { return null; }
+				if (!GetCriteriaFromArgList(tvArgs)) { return null; }
 
 				//ed.WriteMessage("\n@2\n");
 				//DisplayCriteria();
@@ -738,10 +730,10 @@ namespace LayerFilterUtil
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Property\" \"ExistingFilterName\" \"Expression\")");
 
 			ed.WriteMessage("\n● Add a top level group filter:");
-			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" nil \"LayerName\" \"LayerName\")");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" nil (list \"LayerName\" \"LayerName\"))");
 
 			ed.WriteMessage("\n● Add a group filter to an existing filter:");
-			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" \"ExistingFilterName\" \"LayerName\" \"LayerName\")");
+			ed.WriteMessage("\n\t\t(layerFilterUtil \"add\" \"FilterNameToAdd\" \"Group\" \"ExistingFilterName\" (list \"LayerName\" \"LayerName\"))");
 
 			ed.WriteMessage("\n● Delete a layer filter:");
 			ed.WriteMessage("\n\t\t(layerFilterUtil \"delete\" \"FilterNameToDelete\")");
@@ -754,7 +746,7 @@ namespace LayerFilterUtil
 
 			ed.WriteMessage("\n● The case of names does not matter except that, when a");
 			ed.WriteMessage("\n\tfilter is added, the case of the name is used.");
-			ed.WriteMessage("\n● Returns a list when sucessful or nil when unsucessful");
+			ed.WriteMessage("\n● Returns a list when sucessful or nil when unsucessful\n");
 
 		}
 
@@ -1026,29 +1018,6 @@ namespace LayerFilterUtil
 
 		} 
 
-//		/// <summary>
-//		/// Search for one LayerFilter based on the criteria provided
-//		/// </summary>
-//		/// <param name="lfCollect"></param>
-//		/// <param name="Name"></param>
-//		/// <param name="Parent"></param>
-//		/// <param name="allowDelete"></param>
-//		/// <param name="isGroup"></param>
-//		/// <param name="allowNested"></param>
-//		/// <param name="nestCount"></param>
-//		/// <returns></returns>
-//		private List<LayerFilter> SearchOneFilter(LayerFilterCollection lfCollect,
-//			string Name = null, string Parent = null,
-//			bool? allowDelete = null, bool? isGroup = null,
-//			bool? allowNested = null, string nestCount = null)
-//		{
-//			// create the list of LayerFilters
-//			List<LayerFilter> lFilters = new List<LayerFilter>(SearchFilters(lfCollect, Name, Parent, allowDelete, isGroup, allowNested, nestCount));
-//
-//			// return LayerFilter if only 1 found, else return null
-//			return (lFilters.Count == 1 ? lFilters : null);
-//		}
-//
 		/// <summary>
 		/// Validate a filter against the Criteria array
 		/// </summary>
@@ -1128,6 +1097,9 @@ namespace LayerFilterUtil
 		/// <returns></returns>
 		private bool CompareMe(string Control, string Operator, string Test)
 		{
+			Control = Control.ToLower();
+			Test = Test.ToLower();
+
 			switch (Operator)
 			{
 				case "":
@@ -1220,7 +1192,7 @@ namespace LayerFilterUtil
 		/// </summary>
 		/// <param name="tvArgs"></param>
 		/// <returns></returns>
-		bool GetCriteriaFromArg(TypedValue[] tvArgs)
+		bool GetCriteriaFromArgList(TypedValue[] tvArgs)
 		{
 
 			// eliminate any old data in the Criteria Array
@@ -1282,10 +1254,12 @@ namespace LayerFilterUtil
 					m.Groups[CRIT_OPERATOR].Value.Equals("=") ? "==" :
 					m.Groups[CRIT_OPERATOR].Value;
 
-				CriteriaValue = (m.Groups[CRIT_VALUE].Value).ToLower();
+				CriteriaValue = m.Groups[CRIT_VALUE].Value;
 
 				if (CriteriaBoolean)
 				{
+					CriteriaValue = CriteriaValue.ToLower();
+
 					if (Regex.Match(CriteriaValue, @"(1|on|yes)").Success)
 					{
 						CriteriaValue = "true";
